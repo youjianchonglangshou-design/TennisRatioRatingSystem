@@ -10,6 +10,93 @@
 
   const SURFACES = new Set(["Hard", "Clay", "Grass"]);
 
+  const LEAGUE_LEVEL_BY_NAME = [
+    ["AUSTRALIAN OPEN", "Grand Slam"],
+    ["ROLAND GARROS", "Grand Slam"],
+    ["FRENCH OPEN", "Grand Slam"],
+    ["WIMBLEDON", "Grand Slam"],
+    ["US OPEN", "Grand Slam"],
+    ["ATP INDIAN WELLS", "ATP 1000"],
+    ["ATP MIAMI", "ATP 1000"],
+    ["ATP MONTE CARLO", "ATP 1000"],
+    ["ATP MONTE-CARLO", "ATP 1000"],
+    ["ATP MADRID", "ATP 1000"],
+    ["ATP ROME", "ATP 1000"],
+    ["ATP MONTREAL", "ATP 1000"],
+    ["ATP TORONTO", "ATP 1000"],
+    ["ATP CINCINNATI", "ATP 1000"],
+    ["ATP SHANGHAI", "ATP 1000"],
+    ["ATP PARIS", "ATP 1000"],
+    ["ATP WASHINGTON", "ATP 500"],
+    ["ATP DALLAS", "ATP 500"],
+    ["ATP ROTTERDAM", "ATP 500"],
+    ["ATP DOHA", "ATP 500"],
+    ["ATP RIO", "ATP 500"],
+    ["ATP ACAPULCO", "ATP 500"],
+    ["ATP DUBAI", "ATP 500"],
+    ["ATP BARCELONA", "ATP 500"],
+    ["ATP MUNICH", "ATP 500"],
+    ["ATP HAMBURG", "ATP 500"],
+    ["ATP HALLE", "ATP 500"],
+    ["ATP QUEENS", "ATP 500"],
+    ["ATP LONDON", "ATP 500"],
+    ["ATP TOKYO", "ATP 500"],
+    ["ATP BEIJING", "ATP 500"],
+    ["ATP VIENNA", "ATP 500"],
+    ["ATP BASEL", "ATP 500"],
+    ["ATP LOS CABOS", "ATP 250"],
+    ["ATP WINSTON SALEM", "ATP 250"],
+    ["ATP WINSTON-SALEM", "ATP 250"],
+    ["ATP BRISBANE", "ATP 250"],
+    ["ATP HONG KONG", "ATP 250"],
+    ["ATP ADELAIDE", "ATP 250"],
+    ["ATP AUCKLAND", "ATP 250"],
+    ["ATP MONTPELLIER", "ATP 250"],
+    ["ATP BUENOS AIRES", "ATP 250"],
+    ["ATP DELRAY BEACH", "ATP 250"],
+    ["ATP SANTIAGO", "ATP 250"],
+    ["ATP BUCHAREST", "ATP 250"],
+    ["ATP HOUSTON", "ATP 250"],
+    ["ATP MARRAKECH", "ATP 250"],
+    ["ATP GENEVA", "ATP 250"],
+    ["ATP STUTTGART", "ATP 250"],
+    ["ATP HERTOGENBOSCH", "ATP 250"],
+    ["ATP MALLORCA", "ATP 250"],
+    ["ATP EASTBOURNE", "ATP 250"],
+    ["ATP BASTAD", "ATP 250"],
+    ["ATP GSTAAD", "ATP 250"],
+    ["ATP UMAG", "ATP 250"],
+    ["ATP KITZBUHEL", "ATP 250"],
+    ["ATP ESTORIL", "ATP 250"],
+    ["ATP CHENGDU", "ATP 250"],
+    ["ATP HANGZHOU", "ATP 250"],
+    ["ATP ALMATY", "ATP 250"],
+    ["ATP STOCKHOLM", "ATP 250"],
+    ["WTA INDIAN WELLS", "WTA 1000"],
+    ["WTA MIAMI", "WTA 1000"],
+    ["WTA MADRID", "WTA 1000"],
+    ["WTA ROME", "WTA 1000"],
+    ["WTA TORONTO", "WTA 1000"],
+    ["WTA MONTREAL", "WTA 1000"],
+    ["WTA CINCINNATI", "WTA 1000"],
+    ["WTA BEIJING", "WTA 1000"],
+    ["WTA WUHAN", "WTA 1000"],
+    ["WTA DOHA", "WTA 1000"],
+    ["WTA DUBAI", "WTA 1000"],
+    ["WTA WASHINGTON", "WTA 500"],
+    ["WTA ADELAIDE", "WTA 500"],
+    ["WTA ABU DHABI", "WTA 500"],
+    ["WTA CHARLESTON", "WTA 500"],
+    ["WTA STUTTGART", "WTA 500"],
+    ["WTA BERLIN", "WTA 500"],
+    ["WTA BAD HOMBURG", "WTA 500"],
+    ["WTA EASTBOURNE", "WTA 500"],
+    ["WTA SEOUL", "WTA 500"],
+    ["WTA TOKYO", "WTA 500"],
+    ["WTA NINGBO", "WTA 500"],
+    ["WTA 125K VANCOUVER", "WTA 125"],
+  ];
+
   function finiteNumber(value) {
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
@@ -230,7 +317,10 @@
   }
 
   function tournamentLevel(league) {
-    const text = String(league || "").toLocaleLowerCase("en-US");
+    const raw = String(league || "");
+    const text = raw.toLocaleLowerCase("en-US");
+    const upperName = raw.toLocaleUpperCase("en-US");
+
     if (
       text.includes("grand slam") ||
       ["wimbledon", "roland garros", "us open", "australian open"]
@@ -239,10 +329,24 @@
     if (/wta\s*125|wta125/.test(text)) return "WTA 125";
     if (text.includes("challenger")) return "ATP Challenger";
     if (text.includes("itf") || text.includes("futures")) return "ITF/Futures";
+
     const explicit = text.match(/\b(atp|wta)\s*(1000|500|250)\b/);
     if (explicit) return `${explicit[1].toUpperCase()} ${explicit[2]}`;
-    if (/\bwta\b|\bwomen\b/.test(text)) return "WTA";
-    if (/\batp\b|\bmen\b/.test(text)) return "ATP";
+
+    for (const [fragment, level] of LEAGUE_LEVEL_BY_NAME) {
+      if (upperName.includes(fragment)) return level;
+    }
+
+    if (/\bwta\b|\bwomen\b/.test(text)) {
+      if (text.includes("washington")) return "WTA 500";
+      if (text.includes("memphis")) return "WTA 250";
+      return "WTA";
+    }
+    if (/\batp\b|\bmen\b/.test(text)) {
+      if (text.includes("washington")) return "ATP 500";
+      if (text.includes("los cabos")) return "ATP 250";
+      return "ATP";
+    }
     return null;
   }
 
@@ -317,6 +421,7 @@
 
   return {
     SURFACES,
+    LEAGUE_LEVEL_BY_NAME,
     finiteNumber,
     stripDiacritics,
     normalize,

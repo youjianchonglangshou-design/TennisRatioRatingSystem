@@ -177,29 +177,58 @@
   }
 
   function leagueNameForOutput(league) {
-    const leagueData = league && typeof league === "object" && !Array.isArray(league)
-      ? league
-      : null;
+    const leagueData =
+      league && typeof league === "object" && !Array.isArray(league)
+        ? league
+        : null;
     const rawName = leagueData
       ? String(leagueData.name || "未知")
       : String(league || "未知");
-    if (!leagueData) return rawName;
+    const resolvedLevel = tournamentLevel(leagueData || rawName);
 
-    const resolvedFromId = tournamentLevel(leagueData);
-    const resolvedFromName = tournamentLevel(rawName);
-    if (!resolvedFromId || resolvedFromId === resolvedFromName) return rawName;
+    if (
+      !resolvedLevel ||
+      resolvedLevel === "ATP" ||
+      resolvedLevel === "WTA" ||
+      resolvedLevel === "Grand Slam" ||
+      resolvedLevel === "ITF/Futures"
+    ) return rawName;
 
-    if (resolvedFromId.startsWith("ATP ")) {
+    const explicitPatterns = {
+      "ATP 1000": /\bATP\s*1000\b/i,
+      "ATP 500": /\bATP\s*500\b/i,
+      "ATP 250": /\bATP\s*250\b/i,
+      "ATP Challenger": /\bATP\s+Challenger\b|\bChallenger\b/i,
+      "WTA 1000": /\bWTA\s*1000\b/i,
+      "WTA 500": /\bWTA\s*500\b/i,
+      "WTA 250": /\bWTA\s*250\b/i,
+      "WTA 125": /\bWTA\s*125K?\b/i
+    };
+    if (explicitPatterns[resolvedLevel]?.test(rawName)) return rawName;
+
+    if (resolvedLevel === "ATP Challenger") {
       if (/^\s*ATP\b/i.test(rawName)) {
-        return rawName.replace(/^\s*ATP\b/i, resolvedFromId);
+        return rawName.replace(/^\s*ATP\b/i, "ATP Challenger");
       }
-      return `${resolvedFromId} ${rawName}`.trim();
+      return `ATP Challenger ${rawName}`.trim();
     }
-    if (resolvedFromId.startsWith("WTA ")) {
-      if (/^\s*WTA\b/i.test(rawName)) {
-        return rawName.replace(/^\s*WTA(?:\s*125K?)?\b/i, resolvedFromId);
+    if (resolvedLevel.startsWith("ATP ")) {
+      if (/^\s*ATP\b/i.test(rawName)) {
+        return rawName.replace(
+          /^\s*ATP(?:\s*(?:1000|500|250))?\b/i,
+          resolvedLevel
+        );
       }
-      return `${resolvedFromId} ${rawName}`.trim();
+      return `${resolvedLevel} ${rawName}`.trim();
+    }
+    if (resolvedLevel.startsWith("WTA ")) {
+      if (/^\s*WTA\b/i.test(rawName)) {
+        return rawName.replace(
+          /^\s*WTA(?:\s*(?:1000|500|250|125K?))?\b/i,
+          resolvedLevel
+        );
+      }
+      return `${resolvedLevel} ${rawName}`.trim();
     }
     return rawName;
   }
