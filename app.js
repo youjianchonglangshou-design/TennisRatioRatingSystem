@@ -18,17 +18,17 @@
   // 快速測試階段：請自行填入三組值。
   // ============================================================
   const ARCADIA_API_KEY =
-    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+    "請把你的 Arcadia API Key 貼在這裡";
 
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
 
   const WORKER_UPLOAD_TOKEN =
-    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
 
   // Google AI Studio Gemini API Key。
   const GEMINI_API_KEY =
-    "AIzaSyBm6G2-7YafZy2gDfdrJUsyE03BNKng670";
+    "請把你的 Gemini API Key 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -574,7 +574,7 @@
 
   function loadGeminiSettings() {
     const defaults = {
-      apiKey: "",
+      apiKey: configuredGeminiApiKey(),
       baseUrl:
         "https://generativelanguage.googleapis.com/v1beta",
       model: "gemini-2.5-flash",
@@ -585,26 +585,42 @@
       const saved = JSON.parse(
         localStorage.getItem(CHAT_SETTINGS_KEY) || "{}"
       );
-      const settings = Object.assign({}, defaults, saved);
-      const appJsKey = configuredGeminiApiKey();
 
-      // app.js 的 GEMINI_API_KEY 優先於 localStorage。
-      if (appJsKey) settings.apiKey = appJsKey;
-
-      return settings;
+      return {
+        apiKey: configuredGeminiApiKey(),
+        baseUrl:
+          String(saved.baseUrl || defaults.baseUrl)
+            .trim()
+            .replace(/\/+$/, ""),
+        model:
+          String(saved.model || defaults.model)
+            .trim(),
+        systemPrompt:
+          String(
+            saved.systemPrompt || defaults.systemPrompt
+          ).trim()
+      };
     } catch (error) {
-      const settings = Object.assign({}, defaults);
-      const appJsKey = configuredGeminiApiKey();
-      if (appJsKey) settings.apiKey = appJsKey;
-      return settings;
+      return defaults;
     }
   }
 
   let geminiSettings = loadGeminiSettings();
 
   function persistGeminiSettings() {
-    localStorage.setItem(CHAT_SETTINGS_KEY, JSON.stringify(geminiSettings));
-    document.getElementById("chat-model-label").textContent = geminiSettings.model || "gemini-2.5-flash";
+    localStorage.setItem(
+      CHAT_SETTINGS_KEY,
+      JSON.stringify({
+        baseUrl: geminiSettings.baseUrl,
+        model: geminiSettings.model,
+        systemPrompt: geminiSettings.systemPrompt
+      })
+    );
+
+    document.getElementById(
+      "chat-model-label"
+    ).textContent =
+      geminiSettings.model || "gemini-2.5-flash";
   }
 
   function setDrawer(open) {
@@ -621,12 +637,29 @@
   }
 
   function openGeminiSettings() {
-    document.getElementById("gemini-api-key").value = geminiSettings.apiKey || "";
-    document.getElementById("gemini-base-url").value = geminiSettings.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
-    document.getElementById("gemini-model").value = geminiSettings.model || "gemini-2.5-flash";
-    document.getElementById("gemini-system-prompt").value = geminiSettings.systemPrompt || DEFAULT_TENNIS_PROMPT;
-    document.getElementById("gemini-api-key").type = "password";
-    document.getElementById("toggle-api-key").textContent = "顯示";
+    document.getElementById(
+      "gemini-base-url"
+    ).value =
+      geminiSettings.baseUrl ||
+      "https://generativelanguage.googleapis.com/v1beta";
+
+    document.getElementById(
+      "gemini-model"
+    ).value =
+      geminiSettings.model || "gemini-2.5-flash";
+
+    document.getElementById(
+      "gemini-system-prompt"
+    ).value =
+      geminiSettings.systemPrompt ||
+      DEFAULT_TENNIS_PROMPT;
+
+    document.getElementById(
+      "settings-status"
+    ).textContent = configuredGeminiApiKey()
+      ? "Gemini API Key：由 app.js 讀取"
+      : "請先在 app.js 填入 GEMINI_API_KEY";
+
     elements.settingsDialog.showModal();
   }
 
@@ -890,21 +923,25 @@
   document.getElementById("chat-settings").addEventListener("click", openGeminiSettings);
   document.getElementById("settings-close").addEventListener("click", () => elements.settingsDialog.close());
   document.getElementById("settings-cancel").addEventListener("click", () => elements.settingsDialog.close());
-  document.getElementById("toggle-api-key").addEventListener("click", () => {
-    const input = document.getElementById("gemini-api-key");
-    const show = input.type === "password";
-    input.type = show ? "text" : "password";
-    document.getElementById("toggle-api-key").textContent = show ? "隱藏" : "顯示";
-  });
   document.getElementById("gemini-settings-form").addEventListener("submit", event => {
     event.preventDefault();
     geminiSettings = {
-      apiKey:
-        configuredGeminiApiKey() ||
-        document.getElementById("gemini-api-key").value.trim(),
-      baseUrl: document.getElementById("gemini-base-url").value.trim().replace(/\/+$/, "") || "https://generativelanguage.googleapis.com/v1beta",
-      model: document.getElementById("gemini-model").value.trim() || "gemini-2.5-flash",
-      systemPrompt: document.getElementById("gemini-system-prompt").value.trim() || DEFAULT_TENNIS_PROMPT
+      apiKey: configuredGeminiApiKey(),
+      baseUrl:
+        document.getElementById(
+          "gemini-base-url"
+        ).value.trim().replace(/\/+$/, "") ||
+        "https://generativelanguage.googleapis.com/v1beta",
+      model:
+        document.getElementById(
+          "gemini-model"
+        ).value.trim() ||
+        "gemini-2.5-flash",
+      systemPrompt:
+        document.getElementById(
+          "gemini-system-prompt"
+        ).value.trim() ||
+        DEFAULT_TENNIS_PROMPT
     };
     persistGeminiSettings();
     document.getElementById("settings-status").textContent = "設定已儲存";
