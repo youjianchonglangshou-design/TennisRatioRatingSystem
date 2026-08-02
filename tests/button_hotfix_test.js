@@ -7,5 +7,5 @@ ok(app.includes("正在檢查 WORKER_UPLOAD_TOKEN"), "missing rerun config statu
 ok(app.includes("await runFullPipelinePhase4()"), "button does not await full pipeline");
 ok(app.includes("await rerunCurrentListPhase4()"), "button does not await rerun pipeline");
 ok(app.includes("unhandledrejection"), "missing unhandled rejection diagnostic");
-ok(html.includes("app.js?v=phase4-hotfix1"), "missing cache bust");
+ok(html.includes("app.js?v=phase5-gemini1"), "missing cache bust");
 console.log("PASS button hotfix");

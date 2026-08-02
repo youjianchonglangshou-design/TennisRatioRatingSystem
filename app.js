@@ -6,21 +6,29 @@
   const r2Client = window.TennisRatioR2Client;
   const sourcePipeline = window.TennisRatioSourcePipeline;
   const analysisEngine = window.TennisRatioAnalysisEngine;
+  const geminiClient = window.TennisRatioGemini;
   if (!renderer) throw new Error("renderer.js 尚未載入。");
   if (!pinnacle) throw new Error("pinnacle.js 尚未載入。");
   if (!r2Client) throw new Error("r2-client.js 尚未載入。");
   if (!sourcePipeline) throw new Error("source-pipeline.js 尚未載入。");
   if (!analysisEngine) throw new Error("analysis-engine.js 尚未載入。");
+  if (!geminiClient) throw new Error("gemini-client.js 尚未載入。");
 
   // ============================================================
-  // 快速測試階段：請自行填入兩組值。
+  // 快速測試階段：請自行填入三組值。
   // ============================================================
   const ARCADIA_API_KEY =
-    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+    "請把你的 Arcadia API Key 貼在這裡";
+
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
+
   const WORKER_UPLOAD_TOKEN =
-    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
+
+  // Google AI Studio Gemini API Key。
+  const GEMINI_API_KEY =
+    "請把你的 Gemini API Key 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -104,34 +112,38 @@
     return text;
   }
 
+  function configuredGeminiApiKey() {
+    const key = String(GEMINI_API_KEY || "").trim();
+    if (!key || key.includes("請把你的")) return "";
+    return key;
+  }
+
   async function fetchLatestTodayMatches() {
     try {
-      const today = await r2Client.fetchJson(WORKER_URL, "today_matches.json");
-      elements.downloadPinnacle.href = `${WORKER_URL}/today_matches.json`;
-      elements.downloadPinnacle.removeAttribute("download");
-      elements.downloadPinnacle.target = "_blank";
-      return today;
+      return await r2Client.fetchJson(
+        WORKER_URL,
+        "today_matches.json"
+      );
     } catch (error) {
-      console.info("R2 today_matches 尚未建立，改讀儲存庫 fallback。", error);
-      elements.downloadPinnacle.href = "./today_matches.json";
-      elements.downloadPinnacle.setAttribute("download", "");
-      elements.downloadPinnacle.removeAttribute("target");
+      console.info(
+        "R2 today_matches 尚未建立，改讀儲存庫 fallback。",
+        error
+      );
       return fetchJson("today_matches.json");
     }
   }
 
   async function fetchLatestAnalysis() {
     try {
-      const analysis = await r2Client.fetchJson(WORKER_URL, "ratio_analysis.json");
-      elements.downloadRatio.href = `${WORKER_URL}/ratio_analysis.json`;
-      elements.downloadRatio.removeAttribute("download");
-      elements.downloadRatio.target = "_blank";
-      return analysis;
+      return await r2Client.fetchJson(
+        WORKER_URL,
+        "ratio_analysis.json"
+      );
     } catch (error) {
-      console.info("R2 ratio_analysis 尚未建立，改讀儲存庫 fallback。", error);
-      elements.downloadRatio.href = "./ratio_analysis.json";
-      elements.downloadRatio.setAttribute("download", "");
-      elements.downloadRatio.removeAttribute("target");
+      console.info(
+        "R2 ratio_analysis 尚未建立，改讀儲存庫 fallback。",
+        error
+      );
       return fetchJson("ratio_analysis.json");
     }
   }
@@ -139,6 +151,61 @@
   function updateTodayState(today) {
     state.today = today;
     elements.pinnacleTime.textContent = taiwanTimeText(today?.query_time);
+  }
+
+  function saveJsonToComputer(data, filename) {
+    if (!data || typeof data !== "object") {
+      throw new Error(`${filename} 尚無可下載資料。`);
+    }
+
+    const jsonText = JSON.stringify(data, null, 2);
+    const blob = new Blob(
+      [jsonText],
+      { type: "application/json;charset=utf-8" }
+    );
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = objectUrl;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(
+      () => URL.revokeObjectURL(objectUrl),
+      10000
+    );
+  }
+
+  async function downloadCurrentJson(kind) {
+    const isPinnacle = kind === "pinnacle";
+    const filename = isPinnacle
+      ? "today_matches.json"
+      : "ratio_analysis.json";
+
+    try {
+      const data = isPinnacle
+        ? (state.today || await fetchLatestTodayMatches())
+        : (state.analysis || await fetchLatestAnalysis());
+
+      if (isPinnacle) {
+        updateTodayState(data);
+      } else {
+        state.analysis = data;
+      }
+
+      saveJsonToComputer(data, filename);
+      elements.statusLine.classList.remove("error");
+      elements.statusText.textContent =
+        `${filename} 已下載到電腦。`;
+    } catch (error) {
+      console.error(error);
+      elements.statusLine.classList.add("error");
+      elements.statusText.textContent =
+        `下載失敗：${error?.message || String(error)}`;
+    }
   }
 
   async function runAnalysisPhase4(sourceBundle, uploadToken) {
@@ -167,9 +234,6 @@
     );
     const savedAnalysis = await r2Client.fetchJson(WORKER_URL, "ratio_analysis.json");
     state.analysis = savedAnalysis;
-    elements.downloadRatio.href = `${WORKER_URL}/ratio_analysis.json`;
-    elements.downloadRatio.removeAttribute("download");
-    elements.downloadRatio.target = "_blank";
     renderAnalysis(savedAnalysis, state.today);
 
     const health = savedAnalysis.run_health || {};
@@ -253,9 +317,6 @@
 
       const savedToday = await r2Client.fetchJson(WORKER_URL, "today_matches.json");
       updateTodayState(savedToday);
-      elements.downloadPinnacle.href = `${WORKER_URL}/today_matches.json`;
-      elements.downloadPinnacle.removeAttribute("download");
-      elements.downloadPinnacle.target = "_blank";
 
       await runSourcePhase4(savedToday, uploadToken);
     } catch (error) {
@@ -325,6 +386,12 @@
     elements.chatToggle.title = rows.length
       ? "分析資料已載入，可開啟Gemini問答"
       : "分析尚未完成，Gemini暫不可用";
+    const chatContextText = document.getElementById("chat-context-text");
+    if (chatContextText) {
+      chatContextText.innerHTML = rows.length
+        ? `分析資料已載入：<b>${rows.length} 場</b>｜單場問題只傳相關場次，不傳整份巢狀 JSON`
+        : "分析尚未完成，Gemini暫不可用";
+    }
 
     setupSorting();
     applyFilters();
@@ -506,20 +573,30 @@
   }
 
   function loadGeminiSettings() {
+    const defaults = {
+      apiKey: "",
+      baseUrl:
+        "https://generativelanguage.googleapis.com/v1beta",
+      model: "gemini-2.5-flash",
+      systemPrompt: DEFAULT_TENNIS_PROMPT
+    };
+
     try {
-      return Object.assign({
-        apiKey: "",
-        baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-        model: "gemini-2.5-flash",
-        systemPrompt: DEFAULT_TENNIS_PROMPT
-      }, JSON.parse(localStorage.getItem(CHAT_SETTINGS_KEY) || "{}"));
+      const saved = JSON.parse(
+        localStorage.getItem(CHAT_SETTINGS_KEY) || "{}"
+      );
+      const settings = Object.assign({}, defaults, saved);
+      const appJsKey = configuredGeminiApiKey();
+
+      // app.js 的 GEMINI_API_KEY 優先於 localStorage。
+      if (appJsKey) settings.apiKey = appJsKey;
+
+      return settings;
     } catch (error) {
-      return {
-        apiKey: "",
-        baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-        model: "gemini-2.5-flash",
-        systemPrompt: DEFAULT_TENNIS_PROMPT
-      };
+      const settings = Object.assign({}, defaults);
+      const appJsKey = configuredGeminiApiKey();
+      if (appJsKey) settings.apiKey = appJsKey;
+      return settings;
     }
   }
 
@@ -568,6 +645,67 @@
 
   function appendError(text) {
     createChatMessage("error", text);
+  }
+
+  function addSources(message, sources, queries = []) {
+    if (Array.isArray(queries) && queries.length) {
+      const meta = document.createElement("div");
+      meta.className = "chat-meta";
+      meta.textContent = `Google Search：${queries.join("、")}`;
+      message.appendChild(meta);
+    }
+    if (Array.isArray(sources) && sources.length) {
+      const title = document.createElement("div");
+      title.className = "chat-sources-title";
+      title.textContent = "資料來源";
+      message.appendChild(title);
+      const list = document.createElement("ul");
+      list.className = "chat-sources";
+      for (const source of sources) {
+        const uri = String(source?.uri || "").trim();
+        if (!uri) continue;
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = uri;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = String(source?.title || uri || "外網來源");
+        item.appendChild(link);
+        list.appendChild(item);
+      }
+      if (list.childElementCount) message.appendChild(list);
+    }
+  }
+
+  function addContextMeta(message, result) {
+    const meta = document.createElement("div");
+    meta.className = "chat-meta";
+    const mode = result.context_mode === "selected_matches"
+      ? "指定場次完整資料"
+      : "全部場次精簡總覽";
+    const retryText = result.retry_count
+      ? `｜重試 ${result.retry_count} 次`
+      : "";
+    const bytesText = Number.isFinite(Number(result.request_bytes))
+      ? `｜請求 ${(Number(result.request_bytes) / 1024).toFixed(1)} KB`
+      : "";
+    meta.textContent =
+      `本次上下文：${mode}｜傳送 ${result.sent_match_count || 0}/${result.total_match_count || 0} 場` +
+      `${bytesText}${retryText}`;
+    message.appendChild(meta);
+  }
+
+  async function typeAnswer(target, text) {
+    target.body.textContent = "";
+    const cursor = document.createElement("i");
+    cursor.className = "typing-cursor";
+    target.message.appendChild(cursor);
+    for (let index = 0; index < text.length; index += 4) {
+      target.body.textContent += text.slice(index, index + 4);
+      elements.chatLog.scrollTop = elements.chatLog.scrollHeight;
+      await new Promise(resolve => setTimeout(resolve, 8));
+    }
+    cursor.remove();
   }
 
   async function loadData() {
@@ -633,6 +771,22 @@
   });
 
   elements.searchBox.addEventListener("input", applyFilters);
+
+  elements.downloadPinnacle.addEventListener(
+    "click",
+    event => {
+      event.preventDefault();
+      void downloadCurrentJson("pinnacle");
+    }
+  );
+
+  elements.downloadRatio.addEventListener(
+    "click",
+    event => {
+      event.preventDefault();
+      void downloadCurrentJson("ratio");
+    }
+  );
 
   document.querySelectorAll(".run-button").forEach(button => {
     button.addEventListener("click", async () => {
@@ -745,7 +899,9 @@
   document.getElementById("gemini-settings-form").addEventListener("submit", event => {
     event.preventDefault();
     geminiSettings = {
-      apiKey: document.getElementById("gemini-api-key").value.trim(),
+      apiKey:
+        configuredGeminiApiKey() ||
+        document.getElementById("gemini-api-key").value.trim(),
       baseUrl: document.getElementById("gemini-base-url").value.trim().replace(/\/+$/, "") || "https://generativelanguage.googleapis.com/v1beta",
       model: document.getElementById("gemini-model").value.trim() || "gemini-2.5-flash",
       systemPrompt: document.getElementById("gemini-system-prompt").value.trim() || DEFAULT_TENNIS_PROMPT
@@ -759,11 +915,60 @@
     if (state.generating) return;
     const question = elements.chatInput.value.trim();
     if (!question) return;
+
+    const requestHistory = state.chatHistory.slice(-6);
     state.chatHistory.push({ role: "user", text: question });
     createChatMessage("user", question);
     elements.chatInput.value = "";
-    appendError("Gemini介面與設定已完整保留；Phase 4 尚未接入瀏覽器端 Gemini API。");
-    elements.chatInput.focus();
+    state.generating = true;
+    elements.chatSend.disabled = true;
+    elements.chatSend.textContent = "分析中…";
+    const pending = createChatMessage(
+      "model pending",
+      "Gemini 正在分析 TennisRatio 資料；需要即時資訊時會使用 Google Search…"
+    );
+
+    try {
+      if (!geminiSettings.apiKey) {
+        openGeminiSettings();
+        throw new Error("請先在模型設定貼上 Gemini API Key。");
+      }
+      const analysisRows = Array.isArray(state.analysis?.matches)
+        ? state.analysis.matches
+        : [];
+      const result = await geminiClient.ask(question, {
+        payload: state.today,
+        analysis: state.analysis,
+        rows: analysisRows,
+        revision: Number(elements.body.dataset.revision || 0),
+        history: requestHistory,
+        apiKey: geminiSettings.apiKey,
+        model: geminiSettings.model,
+        baseUrl: geminiSettings.baseUrl,
+        customSystemPrompt: geminiSettings.systemPrompt,
+        webGrounding: true
+      });
+
+      pending.message.classList.remove("pending");
+      const answer = String(result.answer || "");
+      await typeAnswer(pending, answer);
+      addContextMeta(pending.message, result);
+      addSources(
+        pending.message,
+        result.grounding_sources || [],
+        result.web_search_queries || []
+      );
+      state.chatHistory.push({ role: "model", text: answer });
+    } catch (error) {
+      pending.message.remove();
+      appendError(`Gemini錯誤：${error?.message || String(error)}`);
+    } finally {
+      state.generating = false;
+      elements.chatSend.disabled = false;
+      elements.chatSend.textContent = "送出";
+      elements.chatInput.focus();
+      elements.chatLog.scrollTop = elements.chatLog.scrollHeight;
+    }
   });
   elements.chatInput.addEventListener("keydown", event => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {

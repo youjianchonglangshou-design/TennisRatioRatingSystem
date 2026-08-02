@@ -11,7 +11,7 @@
 <div class="chat-head-main"><h2>✦ TennisRatio Gemini</h2><small id="chat-model-label">gemini-2.5-flash</small></div>
 <div class="chat-head-actions"><button class="chat-icon" id="chat-new" title="新對話" type="button">＋</button><button class="chat-icon" id="chat-settings" title="模型設定" type="button">⚙</button><button aria-label="關閉" class="chat-icon" id="chat-close" type="button">×</button></div>
 </div>
-<div class="chat-context"><i></i><span>分析資料已載入：<b>20 場</b>｜單場問題只傳相關場次，不傳整份巢狀 JSON</span></div>
+<div class="chat-context"><i></i><span id="chat-context-text">分析資料載入中｜單場問題只傳相關場次，不傳整份巢狀 JSON</span></div>
 <div aria-live="polite" class="chat-log" id="chat-log"><div class="chat-welcome" id="chat-welcome"><strong>網球賽事分析已就緒</strong>可詢問指定項次、球員、傷病、近期賽程或整批排行。需要即時資訊時會使用 Google Search，並在回答下方列出來源。</div></div>
 <div class="chat-composer"><textarea class="chat-input" id="chat-input" placeholder="例如：項次3是否有傷病、退賽或近期疲勞風險？"></textarea><div class="chat-actions"><span class="chat-actions-note">Enter 傳送｜Shift+Enter 換行</span><button class="control chat-send" id="chat-send" type="button">送出</button></div></div>
 </div>
@@ -29,8 +29,8 @@
 <input aria-label="搜尋" class="control search-control" id="search-box" placeholder="搜尋球員、聯賽或狀態" type="search"/>
 <div aria-label="快速顯示" class="filter-chips" role="group"><button aria-pressed="true" class="filter-chip all active" data-filter="全部" type="button"><span>全部</span><b>0</b></button><button aria-pressed="false" class="filter-chip a" data-filter="A" type="button"><span>A</span><b>0</b></button><button aria-pressed="false" class="filter-chip b" data-filter="B" type="button"><span>B</span><b>0</b></button><button aria-pressed="false" class="filter-chip c" data-filter="C" type="button"><span>C</span><b>0</b></button><button aria-pressed="false" class="filter-chip x" data-filter="淘汰" type="button"><span>淘汰</span><b>0</b></button><button aria-pressed="false" class="filter-chip cold-choice" data-filter="冷門方" type="button"><span>冷門方</span><b>0</b></button><button aria-pressed="false" class="filter-chip expired" data-filter="過期" type="button"><span>過期</span><b>0</b></button><button aria-pressed="false" class="filter-chip missing" data-filter="資料不足" type="button"><span>資料不足</span><b>0</b></button><button aria-pressed="false" class="filter-chip missing" data-filter="場地待補" type="button"><span>場地待補</span><b>0</b></button><button aria-pressed="false" class="filter-chip missing" data-filter="層級待補" type="button"><span>層級待補</span><b>0</b></button></div>
 <span class="toolbar-spacer"></span>
-<a class="download" download="" href="./today_matches.json" id="download-pinnacle">下載Pinnacle JSON</a>
-<a class="download" download="" href="./ratio_analysis.json" id="download-ratio">下載Ratio JSON</a>
+<button class="download" id="download-pinnacle" type="button">下載Pinnacle JSON</button>
+<button class="download" id="download-ratio" type="button">下載Ratio JSON</button>
 </section>
 <div class="status-line" id="job-status" role="status">
 <span class="status-dot"></span><span id="status-text">正在載入 R2 ratio_analysis.json、today_matches.json 與 source_bundle.json……</span>
@@ -41,8 +41,8 @@
 </div>
 <dialog class="settings-dialog" id="gemini-settings-dialog">
 <form class="settings-card" id="gemini-settings-form" method="dialog">
-<div class="settings-head"><div><h2>模型設定</h2><p>API Key 與設定只儲存在目前瀏覽器 localStorage。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
-<label class="settings-field"><span>Gemini API Key</span><div class="password-wrap"><input autocomplete="off" id="gemini-api-key" placeholder="貼上 Google AI Studio API Key" type="password"/><button class="control" id="toggle-api-key" type="button">顯示</button></div><small>若留空，系統仍會嘗試讀取本機 gemini_api_key.txt。</small></label>
+<div class="settings-head"><div><h2>模型設定</h2><p>app.js 的 GEMINI_API_KEY 優先；其餘模型設定仍保存在目前瀏覽器。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
+<label class="settings-field"><span>Gemini API Key</span><div class="password-wrap"><input autocomplete="off" id="gemini-api-key" placeholder="貼上 Google AI Studio API Key" type="password"/><button class="control" id="toggle-api-key" type="button">顯示</button></div><small>若 app.js 已填 GEMINI_API_KEY，系統會優先使用；未填時才使用此欄。</small></label>
 <label class="settings-field"><span>Base URL</span><input id="gemini-base-url" type="url" value="https://generativelanguage.googleapis.com/v1beta"/></label>
 <label class="settings-field"><span>模型名稱</span><input id="gemini-model" type="text" value="gemini-2.5-flash"/></label>
 <label class="settings-field"><span>系統提示詞</span><textarea id="gemini-system-prompt"></textarea><small>Temperature 固定為 0，不提供調整。</small></label>
@@ -50,4 +50,4 @@
 </form>
 </dialog>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer="" src="./pinnacle.js?v=phase4-hotfix1"></script><script defer="" src="./source-utils.js?v=phase4-hotfix1"></script><script defer="" src="./scores365.js?v=phase4-hotfix1"></script><script defer="" src="./tennisratio.js?v=phase4-hotfix1"></script><script defer="" src="./source-pipeline.js?v=phase4-hotfix1"></script><script defer="" src="./r2-client.js?v=phase4-hotfix1"></script><script defer="" src="./analysis-engine.js?v=phase4-hotfix1"></script><script defer="" src="./renderer.js?v=phase4-hotfix1"></script><script defer="" src="./app.js?v=phase4-hotfix1"></script></body></html>
+<script defer src="./pinnacle.js?v=phase5-gemini2-key-download"></script><script defer src="./source-utils.js?v=phase5-gemini2-key-download"></script><script defer src="./scores365.js?v=phase5-gemini2-key-download"></script><script defer src="./tennisratio.js?v=phase5-gemini2-key-download"></script><script defer src="./source-pipeline.js?v=phase5-gemini2-key-download"></script><script defer src="./r2-client.js?v=phase5-gemini2-key-download"></script><script defer src="./analysis-engine.js?v=phase5-gemini2-key-download"></script><script defer src="./renderer.js?v=phase5-gemini2-key-download"></script><script defer src="./gemini-client.js?v=phase5-gemini2-key-download"></script><script defer src="./app.js?v=phase5-gemini2-key-download"></script></body></html>
