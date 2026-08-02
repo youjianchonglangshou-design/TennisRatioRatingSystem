@@ -28,7 +28,7 @@
 
   // Google AI Studio Gemini API Key。
   const GEMINI_API_KEY =
-    "GEMINI_API_KEY=AIzaSyBm6G2-7YafZy2gDfdrJUsyE03BNKng670";
+    "AIzaSyBm6G2-7YafZy2gDfdrJUsyE03BNKng670";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
