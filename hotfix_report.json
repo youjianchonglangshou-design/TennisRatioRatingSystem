@@ -1,0 +1,28 @@
+{
+  "version": "phase4-hotfix1",
+  "cause": "configuration validation executed outside try/catch, producing an invisible rejected promise",
+  "fixes": [
+    "move key validation inside try/catch",
+    "await button pipeline handlers",
+    "render all runtime errors in status line",
+    "cache-bust all JavaScript files",
+    "warn on page load when keys are placeholders"
+  ],
+  "syntax_checked_files": [
+    "analysis-engine.js",
+    "app.js",
+    "cloudflare-worker.js",
+    "pinnacle.js",
+    "r2-client.js",
+    "renderer.js",
+    "scores365.js",
+    "source-pipeline.js",
+    "source-utils.js",
+    "tennisratio.js"
+  ],
+  "tests": [
+    "button_hotfix_test.js",
+    "analysis_engine_parity_test.js",
+    "parity_test.js"
+  ]
+}

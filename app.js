@@ -16,11 +16,11 @@
   // 快速測試階段：請自行填入兩組值。
   // ============================================================
   const ARCADIA_API_KEY =
-    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+    "請把你的 Arcadia API Key 貼在這裡";
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
   const WORKER_UPLOAD_TOKEN =
-    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -212,12 +212,21 @@
   }
 
   async function runFullPipelinePhase4() {
-    const apiKey = configurationValue(ARCADIA_API_KEY, "ARCADIA_API_KEY");
-    const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
-
     setRunning(true);
     elements.statusLine.classList.remove("error");
+    elements.statusText.textContent =
+      "正在檢查 ARCADIA_API_KEY 與 WORKER_UPLOAD_TOKEN……";
+
     try {
+      const apiKey = configurationValue(
+        ARCADIA_API_KEY,
+        "ARCADIA_API_KEY"
+      );
+      const uploadToken = configurationValue(
+        WORKER_UPLOAD_TOKEN,
+        "WORKER_UPLOAD_TOKEN"
+      );
+
       elements.statusText.textContent =
         "Phase 2｜正在由目前瀏覽器同時抓取 Arcadia matchups 與 markets……";
       const [matchups, markets] = await Promise.all([
@@ -259,10 +268,17 @@
   }
 
   async function rerunCurrentListPhase4() {
-    const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
     setRunning(true);
     elements.statusLine.classList.remove("error");
+    elements.statusText.textContent =
+      "正在檢查 WORKER_UPLOAD_TOKEN……";
+
     try {
+      const uploadToken = configurationValue(
+        WORKER_UPLOAD_TOKEN,
+        "WORKER_UPLOAD_TOKEN"
+      );
+
       elements.statusText.textContent =
         "只重跑目前清單｜正在從 R2 讀取既有 today_matches.json……";
       const today = await fetchLatestTodayMatches();
@@ -572,10 +588,27 @@
       renderAnalysis(analysis, today);
       if (sourceBundle?.matches) {
         const health = sourceBundle.source_health || {};
+        const missingSettings = [];
+        if (
+          !String(ARCADIA_API_KEY || "").trim() ||
+          String(ARCADIA_API_KEY).includes("請把你的")
+        ) {
+          missingSettings.push("ARCADIA_API_KEY");
+        }
+        if (
+          !String(WORKER_UPLOAD_TOKEN || "").trim() ||
+          String(WORKER_UPLOAD_TOKEN).includes("請把你的")
+        ) {
+          missingSettings.push("WORKER_UPLOAD_TOKEN");
+        }
+        const warning = missingSettings.length
+          ? `｜重新分析前請在 app.js 填入 ${missingSettings.join("、")}`
+          : "";
+
         elements.statusText.textContent =
           `Phase 4系統已就緒｜ratio_analysis ${analysis.matches?.length || 0}場｜` +
           `source_bundle ${sourceBundle.matches.length}場｜場地 ${health.surface_resolved || 0}場｜` +
-          `雙方球員識別 ${health.both_players_found || 0}場`;
+          `雙方球員識別 ${health.both_players_found || 0}場${warning}`;
       }
     } catch (error) {
       console.error(error);
@@ -602,11 +635,21 @@
   elements.searchBox.addEventListener("input", applyFilters);
 
   document.querySelectorAll(".run-button").forEach(button => {
-    button.addEventListener("click", () => {
-      if (button.dataset.mode === "full") {
-        runFullPipelinePhase4();
-      } else {
-        rerunCurrentListPhase4();
+    button.addEventListener("click", async () => {
+      try {
+        if (button.dataset.mode === "full") {
+          await runFullPipelinePhase4();
+        } else {
+          await rerunCurrentListPhase4();
+        }
+      } catch (error) {
+        // 最外層保險：任何未預期錯誤都必須顯示在畫面，
+        // 不再讓按鈕看起來像「完全沒反應」。
+        console.error(error);
+        elements.statusLine.classList.add("error");
+        elements.statusText.textContent =
+          `按鈕執行失敗：${error?.message || String(error)}`;
+        setRunning(false);
       }
     });
   });
@@ -741,6 +784,24 @@
     getTodayMatches: () => state.today,
     getSourceBundle: () => state.sourceBundle
   };
+
+  window.addEventListener("unhandledrejection", event => {
+    const error = event.reason;
+    console.error("Unhandled promise rejection", error);
+    elements.statusLine.classList.add("error");
+    elements.statusText.textContent =
+      `未處理的執行錯誤：${error?.message || String(error)}`;
+    setRunning(false);
+  });
+
+  window.addEventListener("error", event => {
+    if (!event.error) return;
+    console.error("Runtime error", event.error);
+    elements.statusLine.classList.add("error");
+    elements.statusText.textContent =
+      `JavaScript 執行錯誤：${event.error?.message || event.message}`;
+    setRunning(false);
+  });
 
   loadData();
 })();
