@@ -2,9 +2,21 @@
   "use strict";
 
   const renderer = window.TennisRatioRenderer;
-  if (!renderer) {
-    throw new Error("renderer.js 尚未載入。");
-  }
+  const pinnacle = window.TennisRatioPinnacle;
+  const r2Client = window.TennisRatioR2Client;
+  if (!renderer) throw new Error("renderer.js 尚未載入。");
+  if (!pinnacle) throw new Error("pinnacle.js 尚未載入。");
+  if (!r2Client) throw new Error("r2-client.js 尚未載入。");
+
+  // ============================================================
+  // 快速測試階段：請自行填入兩組值。
+  // ============================================================
+  const ARCADIA_API_KEY =
+    "請把你的 Arcadia API Key 貼在這裡";
+  const WORKER_URL =
+    "https://tennis-json-store.youjianchonglangshou.workers.dev";
+  const WORKER_UPLOAD_TOKEN =
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -18,7 +30,9 @@
     activeFilter: "全部",
     closeTimer: null,
     chatHistory: [],
-    generating: false
+    generating: false,
+    rawMatchups: null,
+    rawMarkets: null
   };
 
   const elements = {
@@ -38,7 +52,9 @@
     chatInput: document.getElementById("chat-input"),
     chatSend: document.getElementById("chat-send"),
     chatWelcome: document.getElementById("chat-welcome"),
-    settingsDialog: document.getElementById("gemini-settings-dialog")
+    settingsDialog: document.getElementById("gemini-settings-dialog"),
+    downloadPinnacle: document.getElementById("download-pinnacle"),
+    downloadRatio: document.getElementById("download-ratio")
   };
 
   function taiwanTimeText(value) {
@@ -72,6 +88,101 @@
       throw new Error(`${path} HTTP ${response.status}`);
     }
     return response.json();
+  }
+
+  function configurationValue(value, label) {
+    const text = String(value || "").trim();
+    if (!text || text.includes("請把你的")) {
+      throw new Error(`請先打開 app.js，填入 ${label}。`);
+    }
+    return text;
+  }
+
+  async function fetchLatestTodayMatches() {
+    try {
+      const today = await r2Client.fetchJson(WORKER_URL, "today_matches.json");
+      elements.downloadPinnacle.href = `${WORKER_URL}/today_matches.json`;
+      elements.downloadPinnacle.removeAttribute("download");
+      elements.downloadPinnacle.target = "_blank";
+      return today;
+    } catch (error) {
+      console.info("R2 today_matches 尚未建立，改讀儲存庫 fallback。", error);
+      elements.downloadPinnacle.href = "./today_matches.json";
+      elements.downloadPinnacle.setAttribute("download", "");
+      elements.downloadPinnacle.removeAttribute("target");
+      return fetchJson("today_matches.json");
+    }
+  }
+
+  function updateTodayState(today) {
+    state.today = today;
+    elements.pinnacleTime.textContent = taiwanTimeText(today?.query_time);
+  }
+
+  async function runPinnaclePhase2() {
+    const apiKey = configurationValue(ARCADIA_API_KEY, "ARCADIA_API_KEY");
+    const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
+
+    setRunning(true);
+    elements.statusLine.classList.remove("error");
+    try {
+      elements.statusText.textContent =
+        "Phase 2｜正在由目前瀏覽器同時抓取 Arcadia matchups 與 markets……";
+      const [matchups, markets] = await Promise.all([
+        pinnacle.fetchArcadiaJson(pinnacle.MATCHUPS_URL, apiKey),
+        pinnacle.fetchArcadiaJson(pinnacle.MARKETS_URL, apiKey)
+      ]);
+      state.rawMatchups = matchups;
+      state.rawMarkets = markets;
+
+      elements.statusText.textContent =
+        `Phase 2｜已取得 matchups ${matchups.length} 筆、markets ${markets.length} 筆；正在組合 today_matches.json……`;
+      const today = pinnacle.buildTodayMatches(matchups, markets, {
+        minOdds: 1.5,
+        maxOdds: 1.75
+      });
+
+      elements.statusText.textContent =
+        `Phase 2｜today_matches 已建立 ${today.matches.length} 場；正在寫入 Cloudflare R2……`;
+      const result = await r2Client.uploadOddsBundle(
+        WORKER_URL,
+        uploadToken,
+        { matchups, markets, todayMatches: today }
+      );
+
+      const savedToday = await r2Client.fetchJson(WORKER_URL, "today_matches.json");
+      updateTodayState(savedToday);
+      elements.downloadPinnacle.href = `${WORKER_URL}/today_matches.json`;
+      elements.downloadPinnacle.removeAttribute("download");
+      elements.downloadPinnacle.target = "_blank";
+      elements.statusText.textContent =
+        `Phase 2完成｜R2 matchups ${result.matchupCount} 筆｜markets ${result.marketCount} 筆｜today_matches ${savedToday.matches.length} 場｜完整分析引擎將於下一階段接入`;
+    } catch (error) {
+      console.error(error);
+      elements.statusLine.classList.add("error");
+      elements.statusText.textContent = `Phase 2執行失敗：${error.message}`;
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function loadCurrentListPhase2() {
+    setRunning(true);
+    elements.statusLine.classList.remove("error");
+    try {
+      elements.statusText.textContent =
+        "只重跑目前清單｜正在從 R2 讀取既有 today_matches.json……";
+      const today = await fetchLatestTodayMatches();
+      updateTodayState(today);
+      elements.statusText.textContent =
+        `目前清單已載入 ${today.matches?.length || 0} 場｜分析引擎尚未移植，本階段不會改寫 ratio_analysis.json`;
+    } catch (error) {
+      console.error(error);
+      elements.statusLine.classList.add("error");
+      elements.statusText.textContent = `目前清單讀取失敗：${error.message}`;
+    } finally {
+      setRunning(false);
+    }
   }
 
   function updateFilterCounts(counts) {
@@ -353,11 +464,11 @@
 
   async function loadData() {
     setRunning(true);
-    elements.statusText.textContent = "正在以 JavaScript 讀取 ratio_analysis.json 與 today_matches.json……";
+    elements.statusText.textContent = "正在以 JavaScript 讀取 ratio_analysis.json 與 R2 today_matches.json……";
     try {
       const [analysis, today] = await Promise.all([
         fetchJson("ratio_analysis.json"),
-        fetchJson("today_matches.json")
+        fetchLatestTodayMatches()
       ]);
       state.analysis = analysis;
       state.today = today;
@@ -388,9 +499,11 @@
 
   document.querySelectorAll(".run-button").forEach(button => {
     button.addEventListener("click", () => {
-      elements.statusLine.classList.remove("running", "error");
-      const mode = button.dataset.mode === "full" ? "重新抓取＋完整分析" : "只重跑目前清單";
-      elements.statusText.textContent = `${mode}：第 2 階段已完成動態 UI；分析管線將在後續階段接入。`;
+      if (button.dataset.mode === "full") {
+        runPinnaclePhase2();
+      } else {
+        loadCurrentListPhase2();
+      }
     });
   });
 

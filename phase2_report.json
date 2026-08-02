@@ -1,0 +1,24 @@
+{
+  "phase": "Phase 2",
+  "pipeline": "Arcadia matchups + markets -> pinnacle.js -> today_matches.json -> Cloudflare R2",
+  "reference": "modules/pinnacle.py from TennisRatioSystem v4.4.19",
+  "canonical_rows_tested": 20,
+  "python_schema_exact_match": true,
+  "filters_verified": [
+    "ITF excluded",
+    "Doubles excluded",
+    "odds 1.50-1.75"
+  ],
+  "league_resolution_verified": [
+    "league ID",
+    "league name",
+    "fallback"
+  ],
+  "r2_files": [
+    "matchups.json",
+    "markets.json",
+    "today_matches.json",
+    "meta.json"
+  ],
+  "ui_phase1b_preserved": true
+}

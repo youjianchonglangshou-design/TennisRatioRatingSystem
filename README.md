@@ -1,49 +1,61 @@
-# TennisRatioRatingSystem — Phase 1B 全 JS 動態渲染
+# TennisRatioRatingSystem — Phase 2 Arcadia → today_matches.json
 
-這一版完成了第二個轉換節點：不再依賴 Python 預先把每場比賽寫死在 HTML。
+這一版完成第三個轉換節點：將本機版 `modules/pinnacle.py` 的核心資料管線移植成瀏覽器 JavaScript。
 
 ## 已完成
 
-- `app.js` 在 GitHub Pages 載入：
-  - `ratio_analysis.json`
-  - `today_matches.json`
-- `renderer.js` 根據 JSON 動態建立：
-  - 主表格全部比賽列
-  - 日期、比賽資訊、主客場、賠率、勝率、EV、評級與 D 值
-  - 排名 SSR／SR／R／N／C 膠囊
-  - 比賽資訊 Hover 卡
-  - TennisRatio 雙方數據＋評級整合 Hover 卡
-  - All Levels／Main Tour 分頁
-  - 原始 15 項統計、評級 5 項、D 值、EV、最終評級
-  - BO3 機械預測
-  - H2H 網址與複製按鈕
-- A／B／C／淘汰／冷門方／資料不足等數量由 JSON 即時計算。
-- 搜尋、篩選、排序、複製與 Hover 定位在動態渲染後仍可使用。
-- 更新時間與 Pinnacle 抓取時間改由兩份 JSON 動態顯示。
-- Gemini 側邊欄與設定介面保留原視覺；API 呼叫仍留到後續階段。
-- 兩個分析按鈕保留原位置與讀取狀態，但尚未接入分析管線。
+- 新增 `pinnacle.js`：
+  - 瀏覽器直接抓取 Arcadia `matchups` 與 `markets/straight`。
+  - `matchupId` 配對。
+  - 美式賠率轉十進位賠率。
+  - 過濾 ITF、Doubles。
+  - 賠率範圍維持 1.50～1.75。
+  - League ID＋League name＋fallback 層級辨識。
+  - 台灣時間轉換、排序與項次。
+  - 產生和 Python 版相同 schema 的 `today_matches.json`。
+- 新增 `r2-client.js`：將 `matchups.json`、`markets.json`、`today_matches.json` 一次送入 Worker。
+- `重新抓取＋完整分析` 在本階段已接通 Pinnacle 前置流程：
+  - 抓兩個 API。
+  - 組裝 `today_matches.json`。
+  - 上傳 R2。
+  - 從 R2 讀回驗證。
+- `只重跑目前清單` 現在會讀取 R2 既有 `today_matches.json`；分析引擎仍留到下一階段。
+- 頁面進入時優先讀取 R2 的 `today_matches.json`，尚未建立時才讀儲存庫內 fallback。
+- Phase 1B 的 1:1 動態 UI renderer 完整保留。
 
-## 1:1 驗證
+## 必填設定
 
-本次使用 Phase 1A 的同一份 `ratio_analysis.json` 驗證：
+打開 `app.js`：
 
-- 20 個主表格 `<tr>`：動態 JS 輸出與 Python 快照完全一致。
-- 20 個比賽資訊 template＋20 個整合評級 template：完全一致。
+```js
+const ARCADIA_API_KEY =
+  "你的 Arcadia API Key";
 
-驗證摘要見 `renderer_parity_report.json`。
+const WORKER_UPLOAD_TOKEN =
+  "你的 Cloudflare UPLOAD_TOKEN";
+```
 
-## 現在可以做什麼
+## Cloudflare Worker 必須更新
 
-直接替換 `ratio_analysis.json` 後重新整理頁面，JS 會依新 JSON 重建場次、篩選數量與 Hover 卡片，不再受舊快照場數限制。
+將 `cloudflare-worker.js` 全部貼到 `tennis-json-store` Worker，Deploy。
+更新後 Worker 才會保存與提供：
+
+- `matchups.json`
+- `markets.json`
+- `today_matches.json`
+- `ratio_analysis.json`（先保留給後續階段）
+- `meta.json`
+
+## 測試
+
+```bash
+node tests/pinnacle_parity_test.js
+node tests/parity_test.js
+```
 
 ## 尚未完成
 
-- `重新抓取＋完整分析` 尚未接 Arcadia／R2／JS 分析引擎。
-- `只重跑目前清單` 尚未接 `today_matches.json` 分析流程。
-- `matchups.json + markets.json → today_matches.json` 尚未搬入本專案。
-- Formula B、15項、5項、評級與 BO3 的「計算」仍使用現有 JSON 結果；本階段只負責完整 UI renderer。
-- Gemini 尚未改成瀏覽器端 API。
-
-## GitHub Pages
-
-將壓縮包內全部檔案放到 `TennisRatioRatingSystem` 根目錄，Pages 使用 `main / (root)`。
+- 365Scores／TennisRatio 外部資料來源。
+- Formula B、15項、5項、D值、EV、評級與 BO3 計算。
+- 產生新的 `ratio_analysis.json`。
+- Gemini 瀏覽器端 API。

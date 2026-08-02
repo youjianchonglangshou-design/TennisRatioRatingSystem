@@ -4,23 +4,30 @@
 
 Python 本機版 UI → GitHub Pages 1:1 靜態視覺快照。
 
-## Phase 1B（第二階段）— 完成
+## Phase 1B — 完成
 
 `ratio_analysis.json → renderer.js → 完整 DOM`。
 
-- 主表格不再寫死。
-- Hover 比賽資訊與完整評級卡不再寫死。
-- 任意相同 schema 的新版 `ratio_analysis.json` 可重建畫面。
-- 與 Phase 1A 的 20 列、40 個 templates 已做完全一致驗證。
+## Phase 2 — 完成
+
+`Arcadia matchups + markets → pinnacle.js → today_matches.json → Cloudflare R2`。
+
+已接通：
+
+- 「重新抓取＋完整分析」的 Pinnacle 前置階段。
+- 「只重跑目前清單」的 R2 `today_matches.json` 載入階段。
+- Python `pinnacle.py` 的賠率換算、篩選、聯賽層級、時間與輸出 schema。
 
 ## 下一階段
 
-`matchups.json + markets.json → today_matches.json` 全 JS 移植與 Python 輸出對照。
+先做外部資料來源能力測試與移植：
 
-之後再進入：
+- 365Scores 場地／賽程資料。
+- TennisRatio 賽程、球員、排名與 All Levels／Main Tour 數據。
+- 確認瀏覽器直連或 Worker proxy。
 
-- 外部 365Scores／TennisRatio 資料來源
-- Formula B／15項／5項／D值／EV／評級／BO3 計算引擎
-- 兩顆執行按鈕
-- R2 保存 `today_matches.json` 與 `ratio_analysis.json`
-- Gemini 瀏覽器端 API
+之後再接：
+
+- Formula B／15項／5項／D值／EV／評級／BO3。
+- `ratio_analysis.json` 上傳 R2。
+- Gemini 瀏覽器端 API。
