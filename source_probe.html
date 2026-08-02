@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 3 Source Probe</title>
+<style>
+:root{color-scheme:dark;--bg:#08111f;--panel:#0f1a2b;--line:#293a52;--text:#edf5ff;--muted:#91aac6;--ok:#39d98a;--bad:#ff6b7a;--accent:#55b8ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:"Microsoft JhengHei",Arial,sans-serif}
+main{width:min(980px,calc(100% - 28px));margin:28px auto}.panel{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:22px;margin-bottom:14px}
+h1{margin-top:0}.muted{color:var(--muted)}input,button{font:inherit}input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:#081423;color:var(--text)}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}button{padding:11px 16px;border:1px solid #315376;border-radius:9px;background:#10223a;color:var(--text);cursor:pointer}
+button:hover{border-color:var(--accent)}pre{min-height:280px;max-height:60vh;overflow:auto;padding:16px;border:1px solid var(--line);background:#06101d;white-space:pre-wrap}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<main>
+<section class="panel">
+<h1>Phase 3 外部資料來源測試</h1>
+<p class="muted">只讀取 Worker Proxy，不會寫入或覆蓋 R2。</p>
+<label>Worker URL</label>
+<input id="worker" value="https://tennis-json-store.youjianchonglangshou.workers.dev">
+<div class="actions">
+<button data-test="health">Worker health</button>
+<button data-test="365">365Scores 今天</button>
+<button data-test="atp">TennisRatio ATP</button>
+<button data-test="wta">TennisRatio WTA</button>
+</div>
+</section>
+<section class="panel">
+<strong id="status">待命</strong>
+<pre id="output">按上方按鈕開始測試。</pre>
+</section>
+</main>
+<script>
+const workerInput=document.getElementById("worker");
+const statusNode=document.getElementById("status");
+const output=document.getElementById("output");
+const base=()=>workerInput.value.trim().replace(/\/+$/,"");
+function taipeiDate(){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).filter(p=>p.type!=="literal").map(p=>[p.type,p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+async function run(kind){
+  statusNode.className="";
+  statusNode.textContent="讀取中……";
+  output.textContent="";
+  try{
+    let url;
+    if(kind==="health") url=`${base()}/health`;
+    if(kind==="365") url=`${base()}/source/365/day?date=${taipeiDate()}&v=${Date.now()}`;
+    if(kind==="atp") url=`${base()}/source/tennisratio/schedule?tour=ATP&v=${Date.now()}`;
+    if(kind==="wta") url=`${base()}/source/tennisratio/schedule?tour=WTA&v=${Date.now()}`;
+    const response=await fetch(url,{cache:"no-store"});
+    const text=await response.text();
+    if(!response.ok) throw new Error(`HTTP ${response.status}\n${text}`);
+    let summary={url,status:response.status,contentType:response.headers.get("content-type")};
+    if(kind==="365"){
+      const data=JSON.parse(text);
+      summary.games=Array.isArray(data.games)?data.games.length:0;
+      summary.competitions=Array.isArray(data.competitions)?data.competitions.length:0;
+    }else if(kind==="atp"||kind==="wta"){
+      const doc=new DOMParser().parseFromString(text,"text/html");
+      summary.h2hLinks=doc.querySelectorAll('a[href*="/h2h-compare/"]').length;
+      summary.characters=text.length;
+    }else{
+      summary.payload=JSON.parse(text);
+    }
+    statusNode.className="ok";
+    statusNode.textContent="PASS";
+    output.textContent=JSON.stringify(summary,null,2);
+  }catch(error){
+    statusNode.className="bad";
+    statusNode.textContent="FAIL";
+    output.textContent=error.stack||String(error);
+  }
+}
+document.querySelectorAll("[data-test]").forEach(button=>button.addEventListener("click",()=>run(button.dataset.test)));
+</script>
+</body>
+</html>

@@ -63,5 +63,36 @@
     return response.json();
   }
 
-  return { normalizeBaseUrl, fetchJson, uploadOddsBundle };
+  async function uploadSourceBundle(workerUrl, uploadToken, sourceBundle) {
+    const base = normalizeBaseUrl(workerUrl);
+    const token = String(uploadToken || "").trim();
+    if (!base) throw new Error("WORKER_URL 尚未設定。");
+    if (!token) throw new Error("WORKER_UPLOAD_TOKEN 尚未填入。");
+    if (!sourceBundle || !Array.isArray(sourceBundle.matches)) {
+      throw new Error("source_bundle 必須是含 matches 陣列的 JSON 物件。");
+    }
+
+    const response = await fetch(`${base}/upload-source`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ source_bundle: sourceBundle }),
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      const detail = await responseDetail(response, "Worker來源資料上傳失敗");
+      throw new Error(`Worker HTTP ${response.status}：${detail}`);
+    }
+    return response.json();
+  }
+
+  return {
+    normalizeBaseUrl,
+    fetchJson,
+    uploadOddsBundle,
+    uploadSourceBundle
+  };
 });

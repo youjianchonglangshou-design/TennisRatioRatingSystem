@@ -4,19 +4,21 @@
   const renderer = window.TennisRatioRenderer;
   const pinnacle = window.TennisRatioPinnacle;
   const r2Client = window.TennisRatioR2Client;
+  const sourcePipeline = window.TennisRatioSourcePipeline;
   if (!renderer) throw new Error("renderer.js 尚未載入。");
   if (!pinnacle) throw new Error("pinnacle.js 尚未載入。");
   if (!r2Client) throw new Error("r2-client.js 尚未載入。");
+  if (!sourcePipeline) throw new Error("source-pipeline.js 尚未載入。");
 
   // ============================================================
   // 快速測試階段：請自行填入兩組值。
   // ============================================================
   const ARCADIA_API_KEY =
-    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+    "請把你的 Arcadia API Key 貼在這裡";
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
   const WORKER_UPLOAD_TOKEN =
-    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -32,7 +34,8 @@
     chatHistory: [],
     generating: false,
     rawMatchups: null,
-    rawMarkets: null
+    rawMarkets: null,
+    sourceBundle: null
   };
 
   const elements = {
@@ -119,7 +122,37 @@
     elements.pinnacleTime.textContent = taiwanTimeText(today?.query_time);
   }
 
-  async function runPinnaclePhase2() {
+  async function runSourcePhase3(today, uploadToken) {
+    elements.statusText.textContent =
+      `Phase 3｜開始取得 ${today.matches?.length || 0} 場的365Scores與TennisRatio資料……`;
+
+    const sourceBundle = await sourcePipeline.buildSourceBundle(today, {
+      workerUrl: WORKER_URL,
+      concurrency: 2,
+      progress: message => {
+        elements.statusText.textContent = message;
+      }
+    });
+
+    elements.statusText.textContent =
+      `Phase 3｜外部資料已整理 ${sourceBundle.matches.length} 場；正在寫入 R2 source_bundle.json……`;
+    const uploadResult = await r2Client.uploadSourceBundle(
+      WORKER_URL,
+      uploadToken,
+      sourceBundle
+    );
+    const savedBundle = await r2Client.fetchJson(WORKER_URL, "source_bundle.json");
+    state.sourceBundle = savedBundle;
+
+    const health = savedBundle.source_health || {};
+    elements.statusText.textContent =
+      `Phase 3完成｜source_bundle ${savedBundle.matches?.length || 0} 場｜` +
+      `場地 ${health.surface_resolved || 0} 場｜雙方球員完整識別 ${health.both_players_found || 0} 場｜` +
+      `R2 ${uploadResult.sourceBundleBytes || 0} bytes｜評級分析引擎將於下一階段接入`;
+    return savedBundle;
+  }
+
+  async function runPinnaclePhase3() {
     const apiKey = configurationValue(ARCADIA_API_KEY, "ARCADIA_API_KEY");
     const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
 
@@ -144,7 +177,7 @@
 
       elements.statusText.textContent =
         `Phase 2｜today_matches 已建立 ${today.matches.length} 場；正在寫入 Cloudflare R2……`;
-      const result = await r2Client.uploadOddsBundle(
+      await r2Client.uploadOddsBundle(
         WORKER_URL,
         uploadToken,
         { matchups, markets, todayMatches: today }
@@ -155,18 +188,19 @@
       elements.downloadPinnacle.href = `${WORKER_URL}/today_matches.json`;
       elements.downloadPinnacle.removeAttribute("download");
       elements.downloadPinnacle.target = "_blank";
-      elements.statusText.textContent =
-        `Phase 2完成｜R2 matchups ${result.matchupCount} 筆｜markets ${result.marketCount} 筆｜today_matches ${savedToday.matches.length} 場｜完整分析引擎將於下一階段接入`;
+
+      await runSourcePhase3(savedToday, uploadToken);
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
-      elements.statusText.textContent = `Phase 2執行失敗：${error.message}`;
+      elements.statusText.textContent = `Phase 3執行失敗：${error.message}`;
     } finally {
       setRunning(false);
     }
   }
 
-  async function loadCurrentListPhase2() {
+  async function loadCurrentListPhase3() {
+    const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
     setRunning(true);
     elements.statusLine.classList.remove("error");
     try {
@@ -174,12 +208,11 @@
         "只重跑目前清單｜正在從 R2 讀取既有 today_matches.json……";
       const today = await fetchLatestTodayMatches();
       updateTodayState(today);
-      elements.statusText.textContent =
-        `目前清單已載入 ${today.matches?.length || 0} 場｜分析引擎尚未移植，本階段不會改寫 ratio_analysis.json`;
+      await runSourcePhase3(today, uploadToken);
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
-      elements.statusText.textContent = `目前清單讀取失敗：${error.message}`;
+      elements.statusText.textContent = `目前清單外部資料重跑失敗：${error.message}`;
     } finally {
       setRunning(false);
     }
@@ -466,13 +499,22 @@
     setRunning(true);
     elements.statusText.textContent = "正在以 JavaScript 讀取 ratio_analysis.json 與 R2 today_matches.json……";
     try {
-      const [analysis, today] = await Promise.all([
+      const [analysis, today, sourceBundle] = await Promise.all([
         fetchJson("ratio_analysis.json"),
-        fetchLatestTodayMatches()
+        fetchLatestTodayMatches(),
+        r2Client.fetchJson(WORKER_URL, "source_bundle.json").catch(() => null)
       ]);
       state.analysis = analysis;
       state.today = today;
+      state.sourceBundle = sourceBundle;
       renderAnalysis(analysis, today);
+      if (sourceBundle?.matches) {
+        const health = sourceBundle.source_health || {};
+        elements.statusText.textContent =
+          `Phase 3資料已載入｜source_bundle ${sourceBundle.matches.length}場｜` +
+          `場地 ${health.surface_resolved || 0}場｜雙方球員識別 ${health.both_players_found || 0}場｜` +
+          `目前畫面仍使用上一份 ratio_analysis.json`;
+      }
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
@@ -500,9 +542,9 @@
   document.querySelectorAll(".run-button").forEach(button => {
     button.addEventListener("click", () => {
       if (button.dataset.mode === "full") {
-        runPinnaclePhase2();
+        runPinnaclePhase3();
       } else {
-        loadCurrentListPhase2();
+        loadCurrentListPhase3();
       }
     });
   });
@@ -615,7 +657,7 @@
     state.chatHistory.push({ role: "user", text: question });
     createChatMessage("user", question);
     elements.chatInput.value = "";
-    appendError("Gemini介面與設定已完整保留；第 2 階段尚未接入瀏覽器端 Gemini API。");
+    appendError("Gemini介面與設定已完整保留；Phase 3 尚未接入瀏覽器端 Gemini API。");
     elements.chatInput.focus();
   });
   elements.chatInput.addEventListener("keydown", event => {
@@ -634,7 +676,8 @@
   window.TennisRatioApp = {
     reloadData: loadData,
     getAnalysis: () => state.analysis,
-    getTodayMatches: () => state.today
+    getTodayMatches: () => state.today,
+    getSourceBundle: () => state.sourceBundle
   };
 
   loadData();

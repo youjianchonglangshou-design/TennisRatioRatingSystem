@@ -2,8 +2,8 @@
 
 <html lang="zh-Hant"><head><meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<title>TennisRatioRatingSystem｜Phase 2 Arcadia轉today_matches</title><link href="./styles.css" rel="stylesheet"/></head>
-<body data-analysis-ready="0" data-revision="0" data-runtime="github-pages-phase2-pinnacle-pipeline">
+<title>TennisRatioRatingSystem｜Phase 3 外部資料來源</title><link href="./styles.css" rel="stylesheet"/></head>
+<body data-analysis-ready="0" data-revision="0" data-runtime="github-pages-phase3-source-pipeline">
 <div class="app-shell" id="app-shell">
 <aside aria-hidden="true" class="chat-drawer" id="chat-drawer">
 <div class="chat-inner">
@@ -33,7 +33,7 @@
 <a class="download" download="" href="./ratio_analysis.json" id="download-ratio">下載Ratio JSON</a>
 </section>
 <div class="status-line" id="job-status" role="status">
-<span class="status-dot"></span><span id="status-text">正在載入 ratio_analysis.json 與 R2 today_matches.json……</span>
+<span class="status-dot"></span><span id="status-text">正在載入 ratio_analysis.json、R2 today_matches.json 與 source_bundle.json……</span>
 <span class="visible-count" id="visible-count">顯示 0／0 場</span>
 </div>
 <div class="wrap"><table class="main"><thead><tr><th data-type="number">項次</th><th>日期時間</th><th>比賽資訊</th><th class="copy-head" data-nosort="true" title="複製日期與對戰"><svg aria-hidden="true" class="copy-icon copy-head-icon" focusable="false" viewbox="0 0 24 24"><rect height="12" rx="2.4" width="12" x="8" y="8"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></th><th class="home-player-head">主場</th><th class="away-player-head">客場</th><th data-type="number">熱門方賠率</th><th data-type="number">賠轉勝率</th><th data-type="number">評級勝率</th><th data-type="number">評級EV</th><th data-type="number">評級</th></tr></thead><tbody><tr class="dynamic-loading-row"><td colspan="11">正在由 app.js 讀取 ratio_analysis.json 並建立表格……</td></tr></tbody></table><div class="empty-filter" id="empty-filter">目前沒有可顯示的比賽；可按上方按鈕重新抓取。</div></div>
@@ -50,4 +50,4 @@
 </form>
 </dialog>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer="" src="./pinnacle.js"></script><script defer="" src="./r2-client.js"></script><script defer="" src="./renderer.js"></script><script defer="" src="./app.js"></script></body></html>
+<script defer="" src="./pinnacle.js"></script><script defer="" src="./source-utils.js"></script><script defer="" src="./scores365.js"></script><script defer="" src="./tennisratio.js"></script><script defer="" src="./source-pipeline.js"></script><script defer="" src="./r2-client.js"></script><script defer="" src="./renderer.js"></script><script defer="" src="./app.js"></script></body></html>

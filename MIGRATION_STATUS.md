@@ -12,22 +12,33 @@ Python 本機版 UI → GitHub Pages 1:1 靜態視覺快照。
 
 `Arcadia matchups + markets → pinnacle.js → today_matches.json → Cloudflare R2`。
 
-已接通：
+## Phase 3 — 完成
 
-- 「重新抓取＋完整分析」的 Pinnacle 前置階段。
-- 「只重跑目前清單」的 R2 `today_matches.json` 載入階段。
-- Python `pinnacle.py` 的賠率換算、篩選、聯賽層級、時間與輸出 schema。
+`today_matches.json → 365Scores／TennisRatio → source_bundle.json → Cloudflare R2`。
+
+已完成：
+
+- 365Scores ATP／WTA 主巡迴場地。
+- TennisRatio ATP／WTA 賽程解析。
+- ATP Challenger／WTA 125 場地。
+- 球員正式姓名、ID、Profile 與排名。
+- 同場地 All Levels 與 Main Tour 數據。
+- 資料錯誤與完整度摘要。
+- 「重新抓取＋完整分析」執行 Phase 2＋Phase 3。
+- 「只重跑目前清單」直接重跑 Phase 3。
+- Worker source proxy 與 R2 `source_bundle.json`。
 
 ## 下一階段
 
-先做外部資料來源能力測試與移植：
+- 移植 `analysis_engine.py`。
+- Formula B。
+- 原始 15 項。
+- 評級 5 項。
+- D 值、EV、A／B／C／淘汰。
+- BO3 機械預測。
+- 建立並上傳新的 `ratio_analysis.json`。
 
-- 365Scores 場地／賽程資料。
-- TennisRatio 賽程、球員、排名與 All Levels／Main Tour 數據。
-- 確認瀏覽器直連或 Worker proxy。
+## 後續
 
-之後再接：
-
-- Formula B／15項／5項／D值／EV／評級／BO3。
-- `ratio_analysis.json` 上傳 R2。
 - Gemini 瀏覽器端 API。
+- 正式憑證管理。
