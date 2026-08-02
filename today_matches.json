@@ -1,0 +1,198 @@
+{
+  "batch_date": "2026-08-02",
+  "query_time": "2026-08-02 12:13:23",
+  "timezone": "Asia/Taipei",
+  "filter": {
+    "enabled": true,
+    "min_odds": 1.5,
+    "max_odds": 1.75,
+    "excluded_leagues": [
+      "ITF"
+    ],
+    "excluded_match_types": [
+      "Doubles"
+    ]
+  },
+  "matches": [
+    {
+      "項次": 1,
+      "日期時間": "2026-08-02 17:00",
+      "聯賽": "ATP Challenger Grodzisk Mazowiecki - Qualifiers",
+      "主場": "Ergi Kirkin",
+      "客場": "Kacper Szymkowiak",
+      "主場賠率": 1.699,
+      "客場賠率": 2.13
+    },
+    {
+      "項次": 2,
+      "日期時間": "2026-08-02 17:30",
+      "聯賽": "WTA 125K Warsaw - Qualifiers",
+      "主場": "Marcelina Podlinska",
+      "客場": "Urszula Radwanska",
+      "主場賠率": 2.12,
+      "客場賠率": 1.741
+    },
+    {
+      "項次": 3,
+      "日期時間": "2026-08-02 18:30",
+      "聯賽": "ATP Challenger Hagen - Qualifiers",
+      "主場": "Dali Blanch",
+      "客場": "Rudolf Molleker",
+      "主場賠率": 1.535,
+      "客場賠率": 2.53
+    },
+    {
+      "項次": 4,
+      "日期時間": "2026-08-02 20:00",
+      "聯賽": "ATP Challenger Istanbul - Qualifiers",
+      "主場": "Dimitris Azoidis",
+      "客場": "Toufik Sahtali",
+      "主場賠率": 2.4,
+      "客場賠率": 1.562
+    },
+    {
+      "項次": 5,
+      "日期時間": "2026-08-02 21:00",
+      "聯賽": "ATP Montreal - R1",
+      "主場": "Matteo Berrettini",
+      "客場": "Mariano Navone",
+      "主場賠率": 1.556,
+      "客場賠率": 2.56
+    },
+    {
+      "項次": 6,
+      "日期時間": "2026-08-02 21:00",
+      "聯賽": "WTA 125k Targu Mures - Final",
+      "主場": "Kaitlin Quevedo",
+      "客場": "Laura Samson",
+      "主場賠率": 1.719,
+      "客場賠率": 2.19
+    },
+    {
+      "項次": 7,
+      "日期時間": "2026-08-02 21:00",
+      "聯賽": "ATP Montreal - R1",
+      "主場": "Adolfo Daniel Vallejo",
+      "客場": "Juncheng Shang",
+      "主場賠率": 2.25,
+      "客場賠率": 1.699
+    },
+    {
+      "項次": 8,
+      "日期時間": "2026-08-02 21:30",
+      "聯賽": "ATP Challenger Plovdiv - Qualifiers",
+      "主場": "Dominik Kellovsky",
+      "客場": "Joao Victor Couto Loureiro",
+      "主場賠率": 1.637,
+      "客場賠率": 2.25
+    },
+    {
+      "項次": 9,
+      "日期時間": "2026-08-02 21:30",
+      "聯賽": "ATP Challenger Plovdiv - Qualifiers",
+      "主場": "Dinko Dinev",
+      "客場": "Valentin Basel",
+      "主場賠率": 1.543,
+      "客場賠率": 2.45
+    },
+    {
+      "項次": 10,
+      "日期時間": "2026-08-03 00:30",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Xiyu Wang",
+      "客場": "Sara Bejlek",
+      "主場賠率": 2.3,
+      "客場賠率": 1.671
+    },
+    {
+      "項次": 11,
+      "日期時間": "2026-08-03 02:30",
+      "聯賽": "ATP Washington - Final",
+      "主場": "Taylor Fritz",
+      "客場": "Rafael Jodar",
+      "主場賠率": 1.746,
+      "客場賠率": 2.2
+    },
+    {
+      "項次": 12,
+      "日期時間": "2026-08-03 05:00",
+      "聯賽": "WTA Washington - Final",
+      "主場": "Jessica Pegula",
+      "客場": "Alexandra Eala",
+      "主場賠率": 1.599,
+      "客場賠率": 2.48
+    },
+    {
+      "項次": 13,
+      "日期時間": "2026-08-03 06:00",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Talia Gibson",
+      "客場": "Elisabetta Cocciaretto",
+      "主場賠率": 2.31,
+      "客場賠率": 1.667
+    },
+    {
+      "項次": 14,
+      "日期時間": "2026-08-03 07:00",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Nikola Bartunkova",
+      "客場": "Bianca Andreescu",
+      "主場賠率": 1.629,
+      "客場賠率": 2.38
+    },
+    {
+      "項次": 15,
+      "日期時間": "2026-08-03 21:00",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Janice Tjen",
+      "客場": "Liudmila Samsonova",
+      "主場賠率": 2.54,
+      "客場賠率": 1.562
+    },
+    {
+      "項次": 16,
+      "日期時間": "2026-08-03 21:00",
+      "聯賽": "ATP Montreal - R1",
+      "主場": "Zachary Svajda",
+      "客場": "Denis Shapovalov",
+      "主場賠率": 2.19,
+      "客場賠率": 1.735
+    },
+    {
+      "項次": 17,
+      "日期時間": "2026-08-03 21:00",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Renata Zarazua",
+      "客場": "Tamara Korpatsch",
+      "主場賠率": 1.625,
+      "客場賠率": 2.39
+    },
+    {
+      "項次": 18,
+      "日期時間": "2026-08-03 21:00",
+      "聯賽": "ATP Montreal - R1",
+      "主場": "Juan Manuel Cerundolo",
+      "客場": "Hamad Medjedovic",
+      "主場賠率": 2.41,
+      "客場賠率": 1.617
+    },
+    {
+      "項次": 19,
+      "日期時間": "2026-08-03 21:00",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Panna Udvardy",
+      "客場": "Eva Lys",
+      "主場賠率": 2.67,
+      "客場賠率": 1.515
+    },
+    {
+      "項次": 20,
+      "日期時間": "2026-08-03 21:00",
+      "聯賽": "WTA Toronto - R1",
+      "主場": "Anhelina Kalinina",
+      "客場": "Anna Bondar",
+      "主場賠率": 1.518,
+      "客場賠率": 2.67
+    }
+  ]
+}
