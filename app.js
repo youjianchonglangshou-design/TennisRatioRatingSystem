@@ -12,11 +12,11 @@
   // 快速測試階段：請自行填入兩組值。
   // ============================================================
   const ARCADIA_API_KEY =
-    "請把你的 Arcadia API Key 貼在這裡";
+    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
   const WORKER_UPLOAD_TOKEN =
-    "請把你的 UPLOAD_TOKEN 貼在這裡";
+    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
