@@ -89,10 +89,37 @@
     return response.json();
   }
 
+  async function uploadAnalysis(workerUrl, uploadToken, analysis) {
+    const base = normalizeBaseUrl(workerUrl);
+    const token = String(uploadToken || "").trim();
+    if (!base) throw new Error("WORKER_URL 尚未設定。");
+    if (!token) throw new Error("WORKER_UPLOAD_TOKEN 尚未填入。");
+    if (!analysis || !Array.isArray(analysis.matches)) {
+      throw new Error("ratio_analysis 必須是含 matches 陣列的 JSON 物件。");
+    }
+
+    const response = await fetch(`${base}/upload-analysis`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ ratio_analysis: analysis }),
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      const detail = await responseDetail(response, "Worker分析結果上傳失敗");
+      throw new Error(`Worker HTTP ${response.status}：${detail}`);
+    }
+    return response.json();
+  }
+
   return {
     normalizeBaseUrl,
     fetchJson,
     uploadOddsBundle,
-    uploadSourceBundle
+    uploadSourceBundle,
+    uploadAnalysis
   };
 });

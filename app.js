@@ -5,20 +5,22 @@
   const pinnacle = window.TennisRatioPinnacle;
   const r2Client = window.TennisRatioR2Client;
   const sourcePipeline = window.TennisRatioSourcePipeline;
+  const analysisEngine = window.TennisRatioAnalysisEngine;
   if (!renderer) throw new Error("renderer.js 尚未載入。");
   if (!pinnacle) throw new Error("pinnacle.js 尚未載入。");
   if (!r2Client) throw new Error("r2-client.js 尚未載入。");
   if (!sourcePipeline) throw new Error("source-pipeline.js 尚未載入。");
+  if (!analysisEngine) throw new Error("analysis-engine.js 尚未載入。");
 
   // ============================================================
   // 快速測試階段：請自行填入兩組值。
   // ============================================================
   const ARCADIA_API_KEY =
-    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+    "請把你的 Arcadia API Key 貼在這裡";
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
   const WORKER_UPLOAD_TOKEN =
-    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -35,7 +37,8 @@
     generating: false,
     rawMatchups: null,
     rawMarkets: null,
-    sourceBundle: null
+    sourceBundle: null,
+    config: null
   };
 
   const elements = {
@@ -117,12 +120,68 @@
     }
   }
 
+  async function fetchLatestAnalysis() {
+    try {
+      const analysis = await r2Client.fetchJson(WORKER_URL, "ratio_analysis.json");
+      elements.downloadRatio.href = `${WORKER_URL}/ratio_analysis.json`;
+      elements.downloadRatio.removeAttribute("download");
+      elements.downloadRatio.target = "_blank";
+      return analysis;
+    } catch (error) {
+      console.info("R2 ratio_analysis 尚未建立，改讀儲存庫 fallback。", error);
+      elements.downloadRatio.href = "./ratio_analysis.json";
+      elements.downloadRatio.setAttribute("download", "");
+      elements.downloadRatio.removeAttribute("target");
+      return fetchJson("ratio_analysis.json");
+    }
+  }
+
   function updateTodayState(today) {
     state.today = today;
     elements.pinnacleTime.textContent = taiwanTimeText(today?.query_time);
   }
 
-  async function runSourcePhase3(today, uploadToken) {
+  async function runAnalysisPhase4(sourceBundle, uploadToken) {
+    if (!state.config) {
+      state.config = await fetchJson("ratio_config.json");
+    }
+    elements.statusText.textContent =
+      `Phase 4｜開始執行 Formula B、15項、5項、D值、EV、評級與BO3……`;
+
+    const analysis = await analysisEngine.buildAnalysis(
+      sourceBundle,
+      state.config,
+      {
+        progress: message => {
+          elements.statusText.textContent = message;
+        }
+      }
+    );
+
+    elements.statusText.textContent =
+      `Phase 4｜已完成 ${analysis.matches.length} 場分析；正在寫入 R2 ratio_analysis.json……`;
+    const uploadResult = await r2Client.uploadAnalysis(
+      WORKER_URL,
+      uploadToken,
+      analysis
+    );
+    const savedAnalysis = await r2Client.fetchJson(WORKER_URL, "ratio_analysis.json");
+    state.analysis = savedAnalysis;
+    elements.downloadRatio.href = `${WORKER_URL}/ratio_analysis.json`;
+    elements.downloadRatio.removeAttribute("download");
+    elements.downloadRatio.target = "_blank";
+    renderAnalysis(savedAnalysis, state.today);
+
+    const health = savedAnalysis.run_health || {};
+    const ratings = health.rating_counts || {};
+    elements.statusText.textContent =
+      `Phase 4完成｜ratio_analysis ${savedAnalysis.matches?.length || 0} 場｜` +
+      `A ${ratings.A || 0}｜B ${ratings.B || 0}｜C ${ratings.C || 0}｜淘汰 ${ratings["淘汰"] || ratings["淘汰＋過期"] || 0}｜` +
+      `R2 ${uploadResult.ratioAnalysisBytes || 0} bytes`;
+    return savedAnalysis;
+  }
+
+  async function runSourcePhase4(today, uploadToken) {
     elements.statusText.textContent =
       `Phase 3｜開始取得 ${today.matches?.length || 0} 場的365Scores與TennisRatio資料……`;
 
@@ -136,7 +195,7 @@
 
     elements.statusText.textContent =
       `Phase 3｜外部資料已整理 ${sourceBundle.matches.length} 場；正在寫入 R2 source_bundle.json……`;
-    const uploadResult = await r2Client.uploadSourceBundle(
+    await r2Client.uploadSourceBundle(
       WORKER_URL,
       uploadToken,
       sourceBundle
@@ -147,12 +206,12 @@
     const health = savedBundle.source_health || {};
     elements.statusText.textContent =
       `Phase 3完成｜source_bundle ${savedBundle.matches?.length || 0} 場｜` +
-      `場地 ${health.surface_resolved || 0} 場｜雙方球員完整識別 ${health.both_players_found || 0} 場｜` +
-      `R2 ${uploadResult.sourceBundleBytes || 0} bytes｜評級分析引擎將於下一階段接入`;
-    return savedBundle;
+      `場地 ${health.surface_resolved || 0} 場｜雙方球員完整識別 ${health.both_players_found || 0} 場｜準備進入 Phase 4`;
+
+    return runAnalysisPhase4(savedBundle, uploadToken);
   }
 
-  async function runPinnaclePhase3() {
+  async function runFullPipelinePhase4() {
     const apiKey = configurationValue(ARCADIA_API_KEY, "ARCADIA_API_KEY");
     const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
 
@@ -189,17 +248,17 @@
       elements.downloadPinnacle.removeAttribute("download");
       elements.downloadPinnacle.target = "_blank";
 
-      await runSourcePhase3(savedToday, uploadToken);
+      await runSourcePhase4(savedToday, uploadToken);
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
-      elements.statusText.textContent = `Phase 3執行失敗：${error.message}`;
+      elements.statusText.textContent = `完整分析執行失敗：${error.message}`;
     } finally {
       setRunning(false);
     }
   }
 
-  async function loadCurrentListPhase3() {
+  async function rerunCurrentListPhase4() {
     const uploadToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
     setRunning(true);
     elements.statusLine.classList.remove("error");
@@ -208,11 +267,11 @@
         "只重跑目前清單｜正在從 R2 讀取既有 today_matches.json……";
       const today = await fetchLatestTodayMatches();
       updateTodayState(today);
-      await runSourcePhase3(today, uploadToken);
+      await runSourcePhase4(today, uploadToken);
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
-      elements.statusText.textContent = `目前清單外部資料重跑失敗：${error.message}`;
+      elements.statusText.textContent = `目前清單完整分析失敗：${error.message}`;
     } finally {
       setRunning(false);
     }
@@ -497,23 +556,26 @@
 
   async function loadData() {
     setRunning(true);
-    elements.statusText.textContent = "正在以 JavaScript 讀取 ratio_analysis.json 與 R2 today_matches.json……";
+    elements.statusText.textContent =
+      "正在以 JavaScript 讀取 R2 ratio_analysis.json、today_matches.json、source_bundle.json 與 ratio_config.json……";
     try {
-      const [analysis, today, sourceBundle] = await Promise.all([
-        fetchJson("ratio_analysis.json"),
+      const [analysis, today, sourceBundle, config] = await Promise.all([
+        fetchLatestAnalysis(),
         fetchLatestTodayMatches(),
-        r2Client.fetchJson(WORKER_URL, "source_bundle.json").catch(() => null)
+        r2Client.fetchJson(WORKER_URL, "source_bundle.json").catch(() => null),
+        fetchJson("ratio_config.json")
       ]);
       state.analysis = analysis;
       state.today = today;
       state.sourceBundle = sourceBundle;
+      state.config = config;
       renderAnalysis(analysis, today);
       if (sourceBundle?.matches) {
         const health = sourceBundle.source_health || {};
         elements.statusText.textContent =
-          `Phase 3資料已載入｜source_bundle ${sourceBundle.matches.length}場｜` +
-          `場地 ${health.surface_resolved || 0}場｜雙方球員識別 ${health.both_players_found || 0}場｜` +
-          `目前畫面仍使用上一份 ratio_analysis.json`;
+          `Phase 4系統已就緒｜ratio_analysis ${analysis.matches?.length || 0}場｜` +
+          `source_bundle ${sourceBundle.matches.length}場｜場地 ${health.surface_resolved || 0}場｜` +
+          `雙方球員識別 ${health.both_players_found || 0}場`;
       }
     } catch (error) {
       console.error(error);
@@ -542,9 +604,9 @@
   document.querySelectorAll(".run-button").forEach(button => {
     button.addEventListener("click", () => {
       if (button.dataset.mode === "full") {
-        runPinnaclePhase3();
+        runFullPipelinePhase4();
       } else {
-        loadCurrentListPhase3();
+        rerunCurrentListPhase4();
       }
     });
   });
@@ -657,7 +719,7 @@
     state.chatHistory.push({ role: "user", text: question });
     createChatMessage("user", question);
     elements.chatInput.value = "";
-    appendError("Gemini介面與設定已完整保留；Phase 3 尚未接入瀏覽器端 Gemini API。");
+    appendError("Gemini介面與設定已完整保留；Phase 4 尚未接入瀏覽器端 Gemini API。");
     elements.chatInput.focus();
   });
   elements.chatInput.addEventListener("keydown", event => {
