@@ -1,0 +1,11 @@
+const fs=require("fs");
+const crypto=require("crypto");
+const renderer=require("./renderer.js");
+const analysis=JSON.parse(fs.readFileSync("../ratio_analysis.json","utf8"));
+const expected=JSON.parse(fs.readFileSync("./expected_renderer_hashes.json","utf8"));
+const output=renderer.renderRows(analysis.matches||[]);
+const sha=value=>crypto.createHash("sha256").update(value).digest("hex");
+if((analysis.matches||[]).length!==expected.input_matches)throw new Error("場數不一致");
+if(sha(output.rowsHtml)!==expected.rows_sha256)throw new Error("主表格 renderer regression");
+if(sha(output.templatesHtml)!==expected.templates_sha256)throw new Error("Hover renderer regression");
+console.log(`PASS: ${analysis.matches.length} rows / ${analysis.matches.length*2} templates`);

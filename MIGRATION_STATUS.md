@@ -2,17 +2,25 @@
 
 ## Phase 1A — 完成
 
-Python 本機版 UI → GitHub Pages 靜態視覺基線。
+Python 本機版 UI → GitHub Pages 1:1 靜態視覺快照。
 
-## Phase 1B — 下一步
+## Phase 1B（第二階段）— 完成
 
-把 `_table_document()` 與其所有 Python HTML helper 逐一轉成 JavaScript renderer，讓 R2 的任意新版
-`ratio_analysis.json` 都能在瀏覽器端重建完全相同畫面。
+`ratio_analysis.json → renderer.js → 完整 DOM`。
 
-## Phase 2
+- 主表格不再寫死。
+- Hover 比賽資訊與完整評級卡不再寫死。
+- 任意相同 schema 的新版 `ratio_analysis.json` 可重建畫面。
+- 與 Phase 1A 的 20 列、40 個 templates 已做完全一致驗證。
 
-`matchups.json + markets.json → today_matches.json` 全 JS 對照測試。
+## 下一階段
 
-## Phase 3
+`matchups.json + markets.json → today_matches.json` 全 JS 移植與 Python 輸出對照。
 
-Formula B、15項、5項、D值、EV、評級、BO3 分析引擎轉 JS。
+之後再進入：
+
+- 外部 365Scores／TennisRatio 資料來源
+- Formula B／15項／5項／D值／EV／評級／BO3 計算引擎
+- 兩顆執行按鈕
+- R2 保存 `today_matches.json` 與 `ratio_analysis.json`
+- Gemini 瀏覽器端 API
