@@ -41,12 +41,11 @@
 </div>
 <dialog class="settings-dialog" id="gemini-settings-dialog">
 <form class="settings-card" id="gemini-settings-form" method="dialog">
-<div class="settings-head"><div><h2>模型設定</h2><p>Gemini API Key 直接讀取 app.js；此處只調整模型、Base URL 與系統提示詞。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
-<label class="settings-field"><span>Base URL</span><input id="gemini-base-url" type="url" value="https://generativelanguage.googleapis.com/v1beta"/></label>
+<div class="settings-head"><div><h2>模型設定</h2><p>Gemini API Key 由 Cloudflare Worker Secret 管理；此處只調整模型與系統提示詞。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
 <label class="settings-field"><span>模型名稱</span><input id="gemini-model" type="text" value="gemini-2.5-flash"/></label>
 <label class="settings-field"><span>系統提示詞</span><textarea id="gemini-system-prompt"></textarea><small>Temperature 固定為 0，不提供調整。</small></label>
 <div class="settings-actions"><span class="settings-status" id="settings-status"></span><button class="control" id="settings-cancel" type="button">取消</button><button class="control" type="submit">儲存設定</button></div>
 </form>
 </dialog>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer src="./pinnacle.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./source-utils.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./scores365.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./tennisratio.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./source-pipeline.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./r2-client.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./analysis-engine.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./renderer.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./gemini-client.js?v=phase5-hotfix4-remove-gemini-key-ui"></script><script defer src="./app.js?v=phase5-hotfix4-remove-gemini-key-ui"></script></body></html>
+<script defer src="./pinnacle.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./source-utils.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./scores365.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./tennisratio.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./source-pipeline.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./r2-client.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./analysis-engine.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./renderer.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./gemini-client.js?v=phase5-hotfix5-gemini-worker"></script><script defer src="./app.js?v=phase5-hotfix5-gemini-worker"></script></body></html>

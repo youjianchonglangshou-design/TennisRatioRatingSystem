@@ -15,20 +15,17 @@
   if (!geminiClient) throw new Error("gemini-client.js 尚未載入。");
 
   // ============================================================
-  // 快速測試階段：請自行填入三組值。
+  // 快速測試階段：前端只需要填入兩組值。
+  // Gemini API Key 已移到 Cloudflare Worker Secret。
   // ============================================================
   const ARCADIA_API_KEY =
-    "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+    "請把你的 Arcadia API Key 貼在這裡";
 
   const WORKER_URL =
     "https://tennis-json-store.youjianchonglangshou.workers.dev";
 
   const WORKER_UPLOAD_TOKEN =
-    "tennis_upload_2026_xxxxxxxxxxxxxxxx";
-
-  // Google AI Studio Gemini API Key。
-  const GEMINI_API_KEY =
-    "AQ.Ab8RN6I5IGklK2P95rHZzxS_-2Ks00UXL5V6p0qn-qY-iSwztg";
+    "請把你的 UPLOAD_TOKEN 貼在這裡";
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
@@ -110,12 +107,6 @@
       throw new Error(`請先打開 app.js，填入 ${label}。`);
     }
     return text;
-  }
-
-  function configuredGeminiApiKey() {
-    const key = String(GEMINI_API_KEY || "").trim();
-    if (!key || key.includes("請把你的")) return "";
-    return key;
   }
 
   async function fetchLatestTodayMatches() {
@@ -574,9 +565,6 @@
 
   function loadGeminiSettings() {
     const defaults = {
-      apiKey: configuredGeminiApiKey(),
-      baseUrl:
-        "https://generativelanguage.googleapis.com/v1beta",
       model: "gemini-2.5-flash",
       systemPrompt: DEFAULT_TENNIS_PROMPT
     };
@@ -587,11 +575,6 @@
       );
 
       return {
-        apiKey: configuredGeminiApiKey(),
-        baseUrl:
-          String(saved.baseUrl || defaults.baseUrl)
-            .trim()
-            .replace(/\/+$/, ""),
         model:
           String(saved.model || defaults.model)
             .trim(),
@@ -611,7 +594,6 @@
     localStorage.setItem(
       CHAT_SETTINGS_KEY,
       JSON.stringify({
-        baseUrl: geminiSettings.baseUrl,
         model: geminiSettings.model,
         systemPrompt: geminiSettings.systemPrompt
       })
@@ -632,17 +614,10 @@
     hideCard();
     if (open) {
       setTimeout(() => elements.chatInput.focus(), 230);
-      if (!geminiSettings.apiKey) setTimeout(openGeminiSettings, 260);
     }
   }
 
   function openGeminiSettings() {
-    document.getElementById(
-      "gemini-base-url"
-    ).value =
-      geminiSettings.baseUrl ||
-      "https://generativelanguage.googleapis.com/v1beta";
-
     document.getElementById(
       "gemini-model"
     ).value =
@@ -656,9 +631,8 @@
 
     document.getElementById(
       "settings-status"
-    ).textContent = configuredGeminiApiKey()
-      ? "Gemini API Key：由 app.js 讀取"
-      : "請先在 app.js 填入 GEMINI_API_KEY";
+    ).textContent =
+      "Gemini API Key：由 Cloudflare Worker Secret 管理";
 
     elements.settingsDialog.showModal();
   }
@@ -926,12 +900,6 @@
   document.getElementById("gemini-settings-form").addEventListener("submit", event => {
     event.preventDefault();
     geminiSettings = {
-      apiKey: configuredGeminiApiKey(),
-      baseUrl:
-        document.getElementById(
-          "gemini-base-url"
-        ).value.trim().replace(/\/+$/, "") ||
-        "https://generativelanguage.googleapis.com/v1beta",
       model:
         document.getElementById(
           "gemini-model"
@@ -966,10 +934,11 @@
     );
 
     try {
-      if (!geminiSettings.apiKey) {
-        openGeminiSettings();
-        throw new Error("請先在模型設定貼上 Gemini API Key。");
-      }
+      const workerToken = configurationValue(
+        WORKER_UPLOAD_TOKEN,
+        "WORKER_UPLOAD_TOKEN"
+      );
+
       const analysisRows = Array.isArray(state.analysis?.matches)
         ? state.analysis.matches
         : [];
@@ -979,9 +948,9 @@
         rows: analysisRows,
         revision: Number(elements.body.dataset.revision || 0),
         history: requestHistory,
-        apiKey: geminiSettings.apiKey,
+        workerUrl: WORKER_URL,
+        workerToken,
         model: geminiSettings.model,
-        baseUrl: geminiSettings.baseUrl,
         customSystemPrompt: geminiSettings.systemPrompt,
         webGrounding: true
       });

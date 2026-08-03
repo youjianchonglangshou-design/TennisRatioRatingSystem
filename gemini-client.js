@@ -2,8 +2,7 @@
   "use strict";
 
   const DEFAULT_MODEL = "gemini-2.5-flash";
-  const DEFAULT_BASE_URL =
-    "https://generativelanguage.googleapis.com/v1beta";
+  const DEFAULT_WORKER_PATH = "/gemini";
   const MAX_HISTORY_MESSAGES = 6;
   const MAX_SELECTED_MATCHES = 4;
   const MAX_RETRIES = 3;
@@ -304,15 +303,29 @@
       throw new Error("TennisRatio尚未完成分析，Gemini暫不開放。");
     }
 
-    const apiKey = String(options.apiKey || "").trim();
-    if (!apiKey) throw new Error("請先在模型設定輸入 Gemini API Key。");
-    const model = String(options.model || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
-    const baseUrl = String(options.baseUrl || DEFAULT_BASE_URL)
-      .trim()
-      .replace(/\/+$/, "") || DEFAULT_BASE_URL;
-    if (!baseUrl.startsWith("https://")) {
-      throw new Error("Gemini Base URL 必須使用 https://。");
+    const workerUrl = String(
+      options.workerUrl || ""
+    ).trim().replace(/\/+$/, "");
+
+    if (!workerUrl.startsWith("https://")) {
+      throw new Error(
+        "Gemini Worker URL 必須使用 https://。"
+      );
     }
+
+    const workerToken = String(
+      options.workerToken || ""
+    ).trim();
+
+    if (!workerToken) {
+      throw new Error(
+        "缺少 Cloudflare Worker 驗證 Token。"
+      );
+    }
+
+    const model =
+      String(options.model || DEFAULT_MODEL).trim() ||
+      DEFAULT_MODEL;
 
     const rows = Array.isArray(options.rows)
       ? options.rows
@@ -346,9 +359,17 @@
       tools: options.webGrounding === false ? [] : [{ google_search: {} }],
       generationConfig: generationConfigForModel(model)
     };
-    const encodedText = JSON.stringify(requestPayload);
-    const requestBytes = new TextEncoder().encode(encodedText).byteLength;
-    const endpoint = `${baseUrl}/models/${encodeURIComponent(model)}:generateContent`;
+    const proxyPayload = {
+      model,
+      request: requestPayload
+    };
+
+    const encodedText = JSON.stringify(proxyPayload);
+    const requestBytes =
+      new TextEncoder().encode(encodedText).byteLength;
+
+    const endpoint =
+      `${workerUrl}${DEFAULT_WORKER_PATH}`;
     const fetchImpl = options.fetchImpl || global.fetch?.bind(global);
     if (typeof fetchImpl !== "function") {
       throw new Error("目前瀏覽器不支援 fetch。")
@@ -363,8 +384,10 @@
         const response = await fetchImpl(endpoint, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "x-goog-api-key": apiKey
+            "Content-Type":
+              "application/json; charset=utf-8",
+            "Authorization":
+              `Bearer ${workerToken}`
           },
           body: encodedText,
           signal: controller.signal,
@@ -389,7 +412,7 @@
             "Gemini額度繁忙（HTTP 429）；已自動重試。本次只傳問題所需資料，請30～60秒後再送。"
           );
         }
-        throw new Error(`Gemini API錯誤 HTTP ${response.status}：${detail}`);
+        throw new Error(`Gemini Worker錯誤 HTTP ${response.status}：${detail}`);
       } catch (error) {
         const isAbort = error?.name === "AbortError";
         const retryableNetwork = isAbort || error instanceof TypeError;
@@ -398,14 +421,14 @@
           await sleep(Math.min(1.5 * (2 ** attempt), 12) * 1000);
           continue;
         }
-        if (isAbort) throw new Error("Gemini API連線逾時。");
+        if (isAbort) throw new Error("Gemini Worker連線逾時。");
         throw error;
       } finally {
         clearTimeout(timeoutId);
       }
     }
 
-    if (!responsePayload) throw new Error("Gemini API沒有回傳資料。");
+    if (!responsePayload) throw new Error("Gemini Worker沒有回傳資料。");
     const answer = extractText(responsePayload);
     const grounding = extractGrounding(responsePayload);
     return {
@@ -427,7 +450,7 @@
 
   global.TennisRatioGemini = Object.freeze({
     DEFAULT_MODEL,
-    DEFAULT_BASE_URL,
+    DEFAULT_WORKER_PATH,
     DEFAULT_SYSTEM_PROMPT,
     buildContext,
     extractText,
