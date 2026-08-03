@@ -8,7 +8,7 @@
 <aside aria-hidden="true" class="chat-drawer" id="chat-drawer">
 <div class="chat-inner">
 <div class="chat-head">
-<div class="chat-head-main"><h2>✦ TennisRatio Gemini</h2><small id="chat-model-label">gemini-2.5-flash</small></div>
+<div class="chat-head-main"><h2>✦ TennisRatio Gemini</h2><small id="chat-model-label">自動選擇可用 Flash</small></div>
 <div class="chat-head-actions"><button class="chat-icon" id="chat-new" title="新對話" type="button">＋</button><button class="chat-icon" id="chat-settings" title="模型設定" type="button">⚙</button><button aria-label="關閉" class="chat-icon" id="chat-close" type="button">×</button></div>
 </div>
 <div class="chat-context"><i></i><span id="chat-context-text">分析資料載入中｜單場問題只傳相關場次，不傳整份巢狀 JSON</span></div>
@@ -46,7 +46,7 @@
 <dialog class="settings-dialog" id="gemini-settings-dialog">
 <form class="settings-card" id="gemini-settings-form" method="dialog">
 <div class="settings-head"><div><h2>模型設定</h2><p>Gemini API Key 由 Cloudflare Worker Secret 管理；此處只調整模型與系統提示詞。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
-<label class="settings-field"><span>模型名稱</span><input id="gemini-model" type="text" value="gemini-2.5-flash"/></label>
+<label class="settings-field"><span>模型名稱</span><input id="gemini-model" type="text" value="auto" placeholder="auto"/><small>建議保持 auto，由 Cloudflare Worker 自動選擇目前可用的 Flash 模型。</small></label>
 <label class="settings-field"><span>系統提示詞</span><textarea id="gemini-system-prompt"></textarea><small>Temperature 固定為 0，不提供調整。</small></label>
 <div class="settings-actions"><span class="settings-status" id="settings-status"></span><button class="control" id="settings-cancel" type="button">取消</button><button class="control" type="submit">儲存設定</button></div>
 </form>
@@ -63,4 +63,4 @@
 <button class="analysis-toast-close" id="analysis-toast-close" type="button" aria-label="關閉通知">×</button>
 </div>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=external-risk-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/gemini-client.js?v=external-risk-v1-hotfix9"></script><script defer src="./app.js?v=external-risk-v1-hotfix9"></script></body></html>
+<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=external-risk-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/gemini-client.js?v=external-risk-v1-hotfix10"></script><script defer src="./app.js?v=external-risk-v1-hotfix10"></script></body></html>

@@ -2652,3 +2652,119 @@ confidence
 舊的 `external_risk.json` 不需要重建，前端讀取時會自動清理。
 新產生的 `raw_search_text` 也會直接保存成人類可讀文字。
 
+---
+
+# Hotfix 10｜Gemini 模型自動選擇
+
+## 發生原因
+
+若 Gemini 回傳：
+
+```text
+HTTP 404
+This model is no longer available to new users
+```
+
+代表指定模型已停止向目前這組 API Key／新使用者提供。
+
+這不是：
+
+```text
+API Key 額度不足
+Token 不足
+Cloudflare R2 問題
+```
+
+增加 API Key 無法修復「模型已停用」；必須改用仍可用的模型。
+
+## 新版模型設定
+
+前端模型改成：
+
+```text
+auto
+```
+
+Cloudflare Worker 收到請求後會：
+
+```text
+1. 使用 API Key 查詢 models 清單
+2. 只保留支援 generateContent 的 Gemini 模型
+3. 優先選擇 Flash
+4. 優先選擇較新版本
+5. 快取選擇結果 15 分鐘
+6. 實際呼叫可用模型
+```
+
+## 舊設定自動遷移
+
+瀏覽器 localStorage 若仍保存：
+
+```text
+gemini-2.5-flash
+gemini-2.5-flash-latest
+```
+
+會自動轉成：
+
+```text
+auto
+```
+
+不需要手動清除瀏覽器資料。
+
+## 模型失效時
+
+```text
+指定模型回傳 404／no longer available
+→ 同一把 API Key 立即改試 models 清單中的下一個 Flash 模型
+```
+
+模型和 Key 的輪替分開處理：
+
+```text
+模型 404／不相容
+→ 換模型，不換 Key
+
+HTTP 429／RESOURCE_EXHAUSTED
+→ 換 API Key
+
+HTTP 401／403／API_KEY_INVALID
+→ 跳過失效 Key
+```
+
+## 模型設定畫面
+
+建議保持：
+
+```text
+auto
+```
+
+成功回答後，Gemini 側邊欄會顯示：
+
+```text
+自動｜實際使用的模型名稱
+```
+
+## Worker Health
+
+`/health` 新增：
+
+```json
+{
+  "gemini_model_auto_select": true,
+  "gemini_model_cache_minutes": 15
+}
+```
+
+## Worker 回應 Header
+
+```text
+X-TennisRatio-Gemini-Requested-Model
+X-TennisRatio-Gemini-Model
+X-TennisRatio-Gemini-Model-Attempts
+```
+
+不包含 API Key。
+

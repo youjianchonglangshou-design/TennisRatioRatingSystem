@@ -2254,9 +2254,34 @@
     return button.dataset.copy || "";
   }
 
+
+  function normalizeSavedGeminiModel(value) {
+    const model =
+      String(value || "").trim();
+
+    if (
+      !model ||
+      model === "gemini-2.5-flash" ||
+      model === "gemini-2.5-flash-latest"
+    ) {
+      return "auto";
+    }
+
+    return model;
+  }
+
+  function geminiModelLabel(value) {
+    const model =
+      normalizeSavedGeminiModel(value);
+
+    return model === "auto"
+      ? "自動選擇可用 Flash"
+      : model;
+  }
+
   function loadGeminiSettings() {
     const defaults = {
-      model: "gemini-2.5-flash",
+      model: "auto",
       systemPrompt: DEFAULT_TENNIS_PROMPT
     };
 
@@ -2267,8 +2292,9 @@
 
       return {
         model:
-          String(saved.model || defaults.model)
-            .trim(),
+          normalizeSavedGeminiModel(
+            saved.model || defaults.model
+          ),
         systemPrompt:
           String(
             saved.systemPrompt || defaults.systemPrompt
@@ -2293,7 +2319,9 @@
     document.getElementById(
       "chat-model-label"
     ).textContent =
-      geminiSettings.model || "gemini-2.5-flash";
+      geminiModelLabel(
+        geminiSettings.model
+      );
   }
 
   function setDrawer(open) {
@@ -2312,7 +2340,9 @@
     document.getElementById(
       "gemini-model"
     ).value =
-      geminiSettings.model || "gemini-2.5-flash";
+      normalizeSavedGeminiModel(
+        geminiSettings.model
+      );
 
     document.getElementById(
       "gemini-system-prompt"
@@ -2652,7 +2682,7 @@
         document.getElementById(
           "gemini-model"
         ).value.trim() ||
-        "gemini-2.5-flash",
+        "auto",
       systemPrompt:
         document.getElementById(
           "gemini-system-prompt"
@@ -2704,6 +2734,16 @@
       });
 
       pending.message.classList.remove("pending");
+
+      if (result.model) {
+        document.getElementById(
+          "chat-model-label"
+        ).textContent =
+          geminiSettings.model === "auto"
+            ? `自動｜${result.model}`
+            : result.model;
+      }
+
       const answer = String(result.answer || "");
       await typeAnswer(pending, answer);
       addContextMeta(pending.message, result);
