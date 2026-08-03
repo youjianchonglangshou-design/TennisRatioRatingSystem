@@ -1,64 +1,76 @@
-# TennisRatioRatingSystem — Phase 5 Gemini 全 JavaScript
+# TennisRatioRatingSystem｜結構整合版 v1
 
-## 完成內容
-
-- 保留原本左側 Gemini 抽屜與模型設定視窗。
-- Gemini API 改由瀏覽器 JavaScript 直接呼叫。
-- API Key、Base URL、模型名稱與自訂系統提示儲存在目前瀏覽器 localStorage。
-- 使用 `generateContent` REST API。
-- 預設模型：`gemini-2.5-flash`。
-- Temperature：2.5 模型固定為 0；Gemini 3.x 自動移除舊式 sampling 參數。
-- 啟用 Google Search grounding，回答下方顯示搜尋詞與來源連結。
-- HTTP 429／5xx／網路中斷自動重試，最多 3 次。
-- 問題上下文採機械選擇：
-  - 問到項次、場次、編號、完整球員姓名：最多傳 4 場完整資料。
-  - 問整體、排行、哪些場：傳全部場次精簡表。
-  - 追問未重複提及球員時：沿用最近 6 則對話中的指定場次。
-- 每次回答顯示：上下文模式、傳送場次數、請求大小與重試次數。
-
-## 使用方式
-
-1. 覆蓋 GitHub Pages 儲存庫檔案。
-2. 按 `Ctrl + F5`。
-3. 點左上方 `✦ Gemini`。
-4. 第一次會自動開啟模型設定。
-5. 貼上 Google AI Studio Gemini API Key，儲存。
-6. 輸入問題並送出。
-
-## Worker
-
-Phase 5 不需要修改 Cloudflare Worker。
-Gemini 是瀏覽器直接連線 Google API；R2 仍負責 TennisRatio JSON。
-
-## 憑證提醒
-
-Gemini API Key 儲存在 localStorage，不會 commit 到 GitHub 或寫入 R2；但任何前端 API Key 都可能被目前瀏覽器使用者查看。建議在 Google Cloud／AI Studio 設定網站來源限制與額度限制。
-
----
-
-## Phase 5 Hotfix 2
-
-### app.js 可直接填 Gemini API Key
-
-```js
-const GEMINI_API_KEY =
-  "你的 Google AI Studio API Key";
-```
-
-app.js 設定優先於模型設定視窗與 localStorage。
-
-### JSON 下載已修正
-
-兩個按鈕現在使用 Blob 真正下載到電腦：
+## 正式執行檔
 
 ```text
-下載Pinnacle JSON → today_matches.json
-下載Ratio JSON → ratio_analysis.json
+index.html
+styles.css
+app.js
+renderer.js
+pinnacle.js
+data-services.js
+analysis-engine.js
+gemini-client.js
+ratio_config.json
+today_matches.json
+ratio_analysis.json
+.nojekyll
+LICENSE
+README.md
 ```
 
-不再另開 Cloudflare Worker JSON 頁面。
+## JavaScript 結構
 
-### 安全提醒
+```text
+app.js
+├─ 頁面啟動
+├─ 按鈕與篩選
+├─ 完整分析流程編排
+├─ JSON 下載
+└─ Gemini 對話介面控制
 
-公開 GitHub 中的 `ARCADIA_API_KEY`、`WORKER_UPLOAD_TOKEN`
-與 `GEMINI_API_KEY` 都能被查看。此方式只適合快速測試。
+pinnacle.js
+└─ Arcadia matchups／markets → today_matches.json
+
+data-services.js
+├─ 共用工具
+├─ 365Scores 場地與排名
+├─ TennisRatio 統計、限流與排名補位
+├─ source_bundle.json 建立流程
+└─ Cloudflare R2 Client
+
+analysis-engine.js
+└─ Formula B、15項、5項、D值、EV、評級與 BO3
+
+renderer.js
+└─ 主表格、膠囊、Hover 完整評級卡
+
+gemini-client.js
+└─ 精簡上下文與 Cloudflare Gemini Proxy
+```
+
+原本 GitHub Pages 載入 10 支 JavaScript；整合後載入 6 支。
+
+## 保留三個 JSON 的原因
+
+```text
+ratio_config.json
+→ 分析公式與門檻設定，app.js 會讀取。
+
+today_matches.json
+→ R2 暫時不可用時的比賽清單 fallback。
+
+ratio_analysis.json
+→ R2 暫時不可用時的分析畫面 fallback。
+```
+
+## 部署步驟
+
+1. 上傳／覆蓋 `data-services.js`、`index.html`、`README.md`。
+2. 依 `DELETE_FROM_GITHUB.txt` 刪除舊模組與開發檔。
+3. 等 GitHub Pages 部署。
+4. 按 `Ctrl + F5`。
+5. 先確認首頁載入，再按「只重跑目前清單」。
+
+此版本不覆蓋 `app.js`，因此你已填好的 Arcadia Key 與
+Worker Upload Token 不會消失。
