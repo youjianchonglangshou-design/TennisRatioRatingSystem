@@ -475,26 +475,82 @@
   function placeCard(target) {
     const rect = target.getBoundingClientRect();
     const gap = 10;
+
     if (elements.card.classList.contains("integrated-card")) {
-      const desired = Number(elements.card.dataset.desiredWidth || 1080);
-      const width = Math.min(desired, window.innerWidth - 16);
-      elements.card.style.width = `${width}px`;
+      const ratingGap = 14;
+      const desired = Number(
+        elements.card.dataset.desiredWidth || 1080
+      );
+      const requestedWidth = Math.min(
+        desired,
+        window.innerWidth - 16
+      );
+
+      elements.card.style.width = `${requestedWidth}px`;
       elements.card.style.maxWidth = "none";
-      let left = rect.left - width - gap;
-      if (left < 8) left = 8;
-      if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
-      elements.card.style.left = `${Math.max(8, left)}px`;
+
+      /*
+       * styles.css 會用 !important 將完整分析卡限制在
+       * 約 1080px。舊版仍用 requestedWidth 計算 left，
+       * 所以卡片實際縮小後，右側會留下過大的空白。
+       *
+       * 現在改用瀏覽器實際渲染寬度：
+       * 卡片右邊緣 ← 14px → 評級膠囊左邊緣。
+       */
+      const renderedWidth =
+        elements.card.getBoundingClientRect().width;
+
+      let left =
+        rect.left -
+        renderedWidth -
+        ratingGap;
+
+      if (left < 8) {
+        left = 8;
+      }
+
+      if (
+        left + renderedWidth >
+        window.innerWidth - 8
+      ) {
+        left =
+          window.innerWidth -
+          renderedWidth -
+          8;
+      }
+
+      elements.card.style.left =
+        `${Math.max(8, Math.round(left))}px`;
+
       const height = elements.card.offsetHeight;
       let top = rect.bottom + gap;
-      if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - gap);
+
+      if (top + height > window.innerHeight - 8) {
+        top = Math.max(
+          8,
+          rect.top - height - gap
+        );
+      }
+
       elements.card.style.top = `${top}px`;
       return;
     }
+
     const width = elements.card.offsetWidth;
     const height = elements.card.offsetHeight;
-    const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.left));
+    const left = Math.min(
+      window.innerWidth - width - 8,
+      Math.max(8, rect.left)
+    );
     let top = rect.bottom + gap;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - gap);
+
+    if (top + height > window.innerHeight - 8) {
+      top = Math.max(
+        8,
+        rect.top - height - gap
+      );
+    }
+
     elements.card.style.left = `${left}px`;
     elements.card.style.top = `${top}px`;
   }
