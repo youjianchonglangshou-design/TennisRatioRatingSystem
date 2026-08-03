@@ -3,8 +3,11 @@
 
   const DEFAULT_MODEL = "groq/compound";
   const DEFAULT_WORKER_PATH = "/groq";
-  const MAX_HISTORY_MESSAGES = 6;
-  const MAX_SELECTED_MATCHES = 4;
+  const MAX_HISTORY_MESSAGES = 4;
+  const MAX_HISTORY_CHARS = 1200;
+  const MAX_SELECTED_MATCHES = 3;
+  const MAX_OVERVIEW_MATCHES = 80;
+  const MAX_REQUEST_BYTES = 24000;
   const MAX_RETRIES = 3;
   const REQUEST_TIMEOUT_MS = 120000;
   const RISK_SCAN_DELAY_MS = 1400;
@@ -59,109 +62,469 @@
   }
 
   function overviewQuestion(question) {
-    const text = String(question || "").toLocaleLowerCase("zh-Hant");
+    const text =
+      String(question || "")
+        .toLocaleLowerCase("zh-Hant");
+
     const keywords = [
-      "全部", "整體", "所有", "哪幾場", "哪些場", "最高", "最低",
-      "排行", "排名", "前三", "前3", "前五", "前5", "整理abc",
-      "比較各場", "比較全部", "總覽", "清單"
+      "全部", "整體", "所有", "哪幾場", "哪些場",
+      "最高", "最低", "排行", "排名", "前三",
+      "前3", "前五", "前5", "整理abc",
+      "比較各場", "比較全部", "總覽", "清單",
+      "幾場", "多少場", "幾個", "多少個",
+      "評級分布", "評級數量"
     ];
-    return keywords.some(keyword => text.includes(keyword));
+
+    return keywords.some(
+      keyword => text.includes(keyword)
+    );
   }
 
-  function compactRow(row) {
-    const keys = [
-      "項次", "日期時間", "聯賽", "主場", "客場", "主場名次", "客場名次",
-      "主場賠率", "客場賠率", "熱門方", "熱門方賠率", "賠轉勝率",
-      "Pinnacle去水勝率", "公式B勝率", "評級勝率", "公式B EV百分比",
-      "評級EV百分比", "公式B狀態", "評級", "分析狀態", "判定原因"
-    ];
-    const output = {};
-    for (const key of keys) {
-      if (Object.prototype.hasOwnProperty.call(row || {}, key)) {
-        output[key] = row[key];
+  function ratingAggregateQuestion(question) {
+    const text =
+      String(question || "")
+        .replace(/\s+/g, "")
+        .toUpperCase();
+
+    const countWords =
+      /(幾場|多少場|幾個|多少個|數量|分布|統計|目前有)/u;
+    const ratingWords =
+      /(A級|B級|C級|淘汰|冷門方|過期|資料不足|場地待補|層級待補|評級)/u;
+
+    return (
+      countWords.test(text) &&
+      ratingWords.test(text)
+    );
+  }
+
+  function ratingCountSummary(rows) {
+    const all = {};
+    const active = {};
+
+    for (
+      const row of
+      Array.isArray(rows) ? rows : []
+    ) {
+      const rating =
+        String(row?.評級 || "未分類").trim() ||
+        "未分類";
+
+      all[rating] = (all[rating] || 0) + 1;
+
+      if (!Boolean(row?.已過期)) {
+        active[rating] =
+          (active[rating] || 0) + 1;
       }
     }
-    return output;
+
+    return {
+      全部場次: all,
+      未過期場次: active
+    };
+  }
+
+  function compactOverviewRow(row) {
+    const model =
+      row?.模型 &&
+      typeof row.模型 === "object"
+        ? row.模型
+        : {};
+
+    const hotFive =
+      model?.熱門方五項較優數;
+    const totalFive =
+      model?.五項比較數;
+
+    return {
+      項: row?.項次 ?? null,
+      時: row?.日期時間 ?? null,
+      聯: row?.聯賽 ?? null,
+      主: row?.主場 ?? null,
+      客: row?.客場 ?? null,
+      熱: row?.熱門方 ?? null,
+      賠: row?.熱門方賠率 ?? null,
+      市率:
+        row?.Pinnacle去水勝率 ?? null,
+      評率:
+        row?.評級勝率 ?? null,
+      EV:
+        row?.評級EV百分比 ??
+        row?.["公式B EV百分比"] ??
+        null,
+      級: row?.評級 ?? null,
+      D: model?.D數據差 ?? null,
+      五:
+        hotFive == null &&
+        totalFive == null
+          ? null
+          : `${hotFive ?? 0}/${totalFive ?? 0}`,
+      M: model?.Main權重 ?? null,
+      A:
+        model?.["All Levels權重"] ??
+        null,
+      期:
+        Boolean(row?.已過期)
+    };
+  }
+
+  function compactFiveItems(row) {
+    const source =
+      row?.評級五項比較?.項目;
+
+    if (!Array.isArray(source)) return [];
+
+    return source.slice(0, 5).map(item => ({
+      名稱:
+        item?.名稱 ||
+        item?.label ||
+        item?.key ||
+        null,
+      熱門方值:
+        item?.熱門方值 ?? null,
+      對手值:
+        item?.對手值 ?? null,
+      差值:
+        item?.差值 ?? null,
+      較優方:
+        item?.較優方 ?? null
+    }));
+  }
+
+  function compactBreadth(row, key) {
+    const group =
+      row?.原始指標比較?.[key];
+
+    if (!group || typeof group !== "object") {
+      return null;
+    }
+
+    return {
+      樣本:
+        group?.樣本 ?? null,
+      統計:
+        group?.統計 ?? null
+    };
+  }
+
+  function compactSelectedRow(row) {
+    const event =
+      row?.比賽資訊 &&
+      typeof row.比賽資訊 === "object"
+        ? row.比賽資訊
+        : {};
+    const model =
+      row?.模型 &&
+      typeof row.模型 === "object"
+        ? row.模型
+        : {};
+    const decision =
+      row?.評級判定 &&
+      typeof row.評級判定 === "object"
+        ? row.評級判定
+        : {};
+    const bo3 =
+      row?.BO3機械預測 &&
+      typeof row.BO3機械預測 === "object"
+        ? row.BO3機械預測
+        : {};
+
+    return {
+      基本資料: {
+        項次: row?.項次 ?? null,
+        日期時間:
+          row?.日期時間 ?? null,
+        聯賽: row?.聯賽 ?? null,
+        層級:
+          event?.tournament_level ??
+          null,
+        輪次:
+          event?.round_name ?? null,
+        場地:
+          event?.surface ?? null,
+        主場: row?.主場 ?? null,
+        客場: row?.客場 ?? null,
+        主場名次:
+          row?.主場名次 ?? null,
+        客場名次:
+          row?.客場名次 ?? null
+      },
+      市場資料: {
+        主場賠率:
+          row?.主場賠率 ?? null,
+        客場賠率:
+          row?.客場賠率 ?? null,
+        熱門方:
+          row?.熱門方 ?? null,
+        熱門方位置:
+          row?.熱門方位置 ?? null,
+        熱門方賠率:
+          row?.熱門方賠率 ?? null,
+        賠轉勝率:
+          row?.賠轉勝率 ?? null,
+        Pinnacle去水勝率:
+          row?.Pinnacle去水勝率 ?? null
+      },
+      評級結果: {
+        評級:
+          row?.評級 ?? null,
+        評級勝率:
+          row?.評級勝率 ?? null,
+        評級EV百分比:
+          row?.評級EV百分比 ??
+          row?.["公式B EV百分比"] ??
+          null,
+        公式B狀態:
+          row?.公式B狀態 ?? null,
+        判定原因:
+          row?.判定原因 ?? null,
+        分析狀態:
+          row?.分析狀態 ?? null,
+        已過期:
+          Boolean(row?.已過期),
+        降級原因:
+          decision?.降級原因 ?? null
+      },
+      模型摘要: {
+        Main權重:
+          model?.Main權重 ?? null,
+        AllLevels權重:
+          model?.["All Levels權重"] ??
+          null,
+        賽事Main係數:
+          model?.賽事Main係數 ?? null,
+        Main樣本可信度:
+          model?.Main樣本可信度 ?? null,
+        數據使用模式:
+          model?.數據使用模式 ?? null,
+        D值:
+          model?.D數據差 ?? null,
+        排名情境:
+          model?.排名情境 ?? null,
+        排名情境說明:
+          model?.排名情境說明 ?? null,
+        實際排名修正:
+          model?.實際排名修正 ?? null,
+        五項支持:
+          model?.熱門方五項較優數 ??
+          null,
+        五項比較數:
+          model?.五項比較數 ?? null
+      },
+      五項比較:
+        compactFiveItems(row),
+      十五項廣度: {
+        AllLevels:
+          compactBreadth(
+            row,
+            "All Levels｜同場地"
+          ),
+        MainTour:
+          compactBreadth(
+            row,
+            "Main Tour｜同場地"
+          )
+      },
+      BO3摘要: {
+        狀態: bo3?.狀態 ?? null,
+        預估總局數:
+          bo3?.預估總局數 ?? null,
+        熱門方預測:
+          bo3?.熱門方預測 ?? null,
+        對手預測:
+          bo3?.對手預測 ?? null,
+        盤數機率:
+          bo3?.盤數機率 ?? null
+      }
+    };
   }
 
   function buildContext(question, options = {}) {
-    const payload = options.payload && typeof options.payload === "object"
-      ? options.payload
-      : {};
-    const analysis = options.analysis && typeof options.analysis === "object"
-      ? options.analysis
-      : {};
-    const rows = Array.isArray(options.rows)
-      ? options.rows
-      : (Array.isArray(analysis.matches) ? analysis.matches : []);
-    const history = Array.isArray(options.history) ? options.history : [];
-    const revision = Number(options.revision || 0);
+    const payload =
+      options.payload &&
+      typeof options.payload === "object"
+        ? options.payload
+        : {};
+    const analysis =
+      options.analysis &&
+      typeof options.analysis === "object"
+        ? options.analysis
+        : {};
+    const rows =
+      Array.isArray(options.rows)
+        ? options.rows
+        : (
+            Array.isArray(
+              analysis.matches
+            )
+              ? analysis.matches
+              : []
+          );
+    const history =
+      Array.isArray(options.history)
+        ? options.history
+        : [];
+    const revision =
+      Number(options.revision || 0);
+
+    const base = {
+      context_schema:
+        "tennisratio-question-context-v4-compact",
+      revision,
+      batch_date:
+        payload.batch_date ?? null,
+      pinnacle_query_time:
+        payload.query_time ?? null,
+      ratio_generated_at_taiwan:
+        analysis.generated_at_taiwan ??
+        null,
+      total_match_count:
+        rows.length
+    };
+
+    if (ratingAggregateQuestion(question)) {
+      return {
+        ...base,
+        context_mode:
+          "rating_summary",
+        sent_match_count: 0,
+        rating_counts:
+          ratingCountSummary(rows),
+        note:
+          "此問題只需要評級數量，不傳送逐場完整資料。"
+      };
+    }
 
     let selectedItems = unique([
       ...explicitItemMentions(question),
-      ...fullNameMentions(question, rows)
+      ...fullNameMentions(
+        question,
+        rows
+      )
     ]);
-    let selectionSource = selectedItems.length ? "current_question" : "";
+    let selectionSource =
+      selectedItems.length
+        ? "current_question"
+        : "";
 
-    if (!selectedItems.length && !overviewQuestion(question)) {
-      for (const item of history.slice(-MAX_HISTORY_MESSAGES).reverse()) {
-        if (!item || typeof item !== "object") continue;
-        const text = String(item.text || item.content || "");
+    if (
+      !selectedItems.length &&
+      !overviewQuestion(question)
+    ) {
+      for (
+        const item of
+        history
+          .slice(-MAX_HISTORY_MESSAGES)
+          .reverse()
+      ) {
+        if (
+          !item ||
+          typeof item !== "object"
+        ) {
+          continue;
+        }
+
+        const historyText =
+          String(
+            item.text ||
+            item.content ||
+            ""
+          );
         const references = unique([
-          ...explicitItemMentions(text),
-          ...fullNameMentions(text, rows)
+          ...explicitItemMentions(
+            historyText
+          ),
+          ...fullNameMentions(
+            historyText,
+            rows
+          )
         ]);
+
         if (references.length) {
           selectedItems = references;
-          selectionSource = "conversation_history";
+          selectionSource =
+            "conversation_history";
           break;
         }
       }
     }
 
     const validItems = new Set(
-      rows.map(row => itemNumber(row?.項次)).filter(value => value !== null)
+      rows
+        .map(row =>
+          itemNumber(row?.項次)
+        )
+        .filter(value =>
+          value !== null
+        )
     );
+
     selectedItems = selectedItems
-      .filter(item => validItems.has(item))
-      .slice(0, MAX_SELECTED_MATCHES);
-    const selectedSet = new Set(selectedItems);
-    const selectedRows = rows.filter(row => selectedSet.has(itemNumber(row?.項次)));
+      .filter(item =>
+        validItems.has(item)
+      )
+      .slice(
+        0,
+        MAX_SELECTED_MATCHES
+      );
 
-    const base = {
-      context_schema: "tennisratio-question-context-v3-js",
-      revision,
-      batch_date: payload.batch_date ?? null,
-      pinnacle_query_time: payload.query_time ?? null,
-      ratio_generated_at_taiwan: analysis.generated_at_taiwan ?? null,
-      total_match_count: rows.length
-    };
+    if (selectedItems.length) {
+      const selectedSet =
+        new Set(selectedItems);
+      const selectedRows =
+        rows
+          .filter(row =>
+            selectedSet.has(
+              itemNumber(row?.項次)
+            )
+          )
+          .map(compactSelectedRow);
 
-    if (selectedRows.length) {
-      const analysisRows = (Array.isArray(analysis.matches) ? analysis.matches : [])
-        .filter(row => row && selectedSet.has(itemNumber(row.項次)));
-      const sourceRows = (Array.isArray(payload.matches) ? payload.matches : [])
-        .filter(row => row && selectedSet.has(itemNumber(row.項次)));
       return {
         ...base,
-        context_mode: "selected_matches",
-        selection_source: selectionSource,
-        selected_items: selectedItems,
-        sent_match_count: selectedRows.length,
-        selected_table_rows: selectedRows,
-        selected_ratio_analysis_matches: analysisRows,
-        selected_today_matches: sourceRows
+        context_mode:
+          "selected_matches_compact",
+        selection_source:
+          selectionSource,
+        selected_items:
+          selectedItems,
+        sent_match_count:
+          selectedRows.length,
+        selected_matches:
+          selectedRows,
+        note:
+          "只傳指定場次的必要評級、模型與比較摘要，不重複傳送完整巢狀JSON。"
       };
     }
 
+    const overviewRows =
+      rows
+        .slice(
+          0,
+          MAX_OVERVIEW_MATCHES
+        )
+        .map(compactOverviewRow);
+
     return {
       ...base,
-      context_mode: "compact_overview",
-      selection_source: "overview_or_unresolved",
+      context_mode:
+        "compact_overview",
+      selection_source:
+        "overview_or_unresolved",
       selected_items: [],
-      sent_match_count: rows.length,
-      table_rows_compact: rows.map(compactRow),
-      note: "跨場比較只傳精簡表，不重複傳送完整巢狀JSON。"
+      sent_match_count:
+        overviewRows.length,
+      table_rows_compact:
+        overviewRows,
+      rows_omitted:
+        Math.max(
+          0,
+          rows.length -
+          overviewRows.length
+        ),
+      rating_counts:
+        ratingCountSummary(rows),
+      note:
+        "跨場問題只傳超精簡表；不傳每場巢狀資料、完整十五項或完整球員統計。"
     };
   }
 
@@ -932,12 +1295,36 @@
       );
     }
 
-    const encodedText =
+    let encodedText =
       JSON.stringify(proxyPayload);
-    const requestBytes =
+    let requestBytes =
       new TextEncoder()
         .encode(encodedText)
         .byteLength;
+
+    while (
+      requestBytes > MAX_REQUEST_BYTES &&
+      proxyPayload.request.messages.length > 2
+    ) {
+      proxyPayload.request.messages.splice(
+        1,
+        1
+      );
+      encodedText =
+        JSON.stringify(proxyPayload);
+      requestBytes =
+        new TextEncoder()
+          .encode(encodedText)
+          .byteLength;
+    }
+
+    if (
+      requestBytes > MAX_REQUEST_BYTES
+    ) {
+      throw new Error(
+        `本次 TennisRatio 資料包仍過大（${requestBytes} bytes）；請指定項次或球員，避免詢問全部完整資料。`
+      );
+    }
 
     let responsePayload = null;
     let actualModel = DEFAULT_MODEL;
@@ -1774,20 +2161,43 @@
     };
   }
 
-  function buildSystemText(context, customSystemPrompt) {
-    const contextRule = context.context_mode === "selected_matches"
-      ? "只附指定場次完整資料；不得聲稱看過其他未附場次。"
-      : "附全部場次精簡表，適合排行總覽；未附每場龐大巢狀資料。";
-    const custom = String(customSystemPrompt || "").trim();
+  function buildSystemText(
+    context,
+    customSystemPrompt
+  ) {
+    const modeRules = {
+      rating_summary:
+        "本次只附評級數量。直接依 rating_counts 回答，不要要求逐場資料。",
+      selected_matches_compact:
+        "只附指定場次的精簡必要資料；不得聲稱看過未附欄位或其他場次。",
+      compact_overview:
+        "附全部或最多80場的超精簡表，適合排行與總覽；未附完整巢狀資料。"
+    };
+
+    const contextRule =
+      modeRules[context.context_mode] ||
+      "只使用本次附上的資料。";
+
+    const custom =
+      String(
+        customSystemPrompt || ""
+      )
+        .trim()
+        .slice(0, 2000);
+
     return (
       DEFAULT_SYSTEM_PROMPT +
       "\nJSON是唯一主資料；不得補造賠率、勝率、評級或模型結果。\n" +
       `${contextRule}\n` +
       "Pinnacle賠率是實際分析價格；外網賠率不得取代或重算EV。\n" +
-      "涉及傷病、退賽、疲勞、旅行、近期狀態與官方公告時，使用 Groq Compound 內建 Web Search 交叉核對，但外網只能作為獨立風險因子。\n" +
-      "回答時優先列出對陣、熱門方賠率、Pinnacle去水勝率、評級勝率、評級EV、Main Tour／All Levels混合比重、D值、五項方向、EV與五項支持兩道評級門檻、資料缺口與外網查證結果。\n" +
+      "只有涉及傷病、退賽、疲勞、旅行、近期狀態與官方公告時，才需要 Groq Compound 內建 Web Search。\n" +
+      "簡單數量、評級分布或系統內資料問題，不需要搜尋外網。\n" +
       `目前台灣時間：${taipeiTimeText()}。\n` +
-      (custom ? `\n【使用者自訂系統提示】\n${custom}\n` : "") +
+      (
+        custom
+          ? `\n【使用者自訂系統提示】\n${custom}\n`
+          : ""
+      ) +
       "\n【本次問題專用TennisRatio JSON】\n" +
       JSON.stringify(context)
     );
@@ -1941,7 +2351,10 @@
         messages.push({
           role,
           content:
-            value.slice(0, 6000)
+            value.slice(
+              0,
+              MAX_HISTORY_CHARS
+            )
         });
       }
     }
@@ -1958,12 +2371,38 @@
       }
     };
 
-    const encodedText =
+    let encodedText =
       JSON.stringify(proxyPayload);
-    const requestBytes =
+    let requestBytes =
       new TextEncoder()
         .encode(encodedText)
         .byteLength;
+
+    // Groq chat safety gate. Remove the oldest conversation history
+    // first; preserve the current question and its TennisRatio context.
+    while (
+      requestBytes > MAX_REQUEST_BYTES &&
+      proxyPayload.request.messages.length > 2
+    ) {
+      proxyPayload.request.messages.splice(
+        1,
+        1
+      );
+      encodedText =
+        JSON.stringify(proxyPayload);
+      requestBytes =
+        new TextEncoder()
+          .encode(encodedText)
+          .byteLength;
+    }
+
+    if (
+      requestBytes > MAX_REQUEST_BYTES
+    ) {
+      throw new Error(
+        `本次 TennisRatio 資料包仍過大（${requestBytes} bytes）；請指定項次或球員，避免要求全部完整資料。`
+      );
+    }
 
     const endpoint =
       `${workerUrl}${DEFAULT_WORKER_PATH}`;
@@ -2055,6 +2494,12 @@
         if (response.status === 429) {
           throw new Error(
             "Groq 使用量暫時達到上限（HTTP 429）；已自動重試，請稍後再送。"
+          );
+        }
+
+        if (response.status === 413) {
+          throw new Error(
+            `Groq請求資料過大（${requestBytes} bytes）。新版應自動精簡；請按 Ctrl+F5 後重試。`
           );
         }
 
