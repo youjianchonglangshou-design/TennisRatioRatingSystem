@@ -43,7 +43,11 @@
     rawMatchups: null,
     rawMarkets: null,
     sourceBundle: null,
-    config: null
+    config: null,
+    externalRisk: null,
+    riskScanning: false,
+    riskScanTimer: null,
+    riskScanGeneration: 0
   };
 
   const elements = {
@@ -65,7 +69,12 @@
     chatWelcome: document.getElementById("chat-welcome"),
     settingsDialog: document.getElementById("gemini-settings-dialog"),
     downloadPinnacle: document.getElementById("download-pinnacle"),
-    downloadRatio: document.getElementById("download-ratio")
+    downloadRatio: document.getElementById("download-ratio"),
+    riskStatus: document.getElementById("risk-status"),
+    riskDialog: document.getElementById("external-risk-dialog"),
+    riskDialogTitle: document.getElementById("risk-dialog-title"),
+    riskDialogSubtitle: document.getElementById("risk-dialog-subtitle"),
+    riskDialogBody: document.getElementById("risk-dialog-body")
   };
 
   function taiwanTimeText(value) {
@@ -137,6 +146,353 @@
       );
       return fetchJson("ratio_analysis.json");
     }
+  }
+
+
+  async function fetchLatestExternalRisk() {
+    try {
+      return await r2Client.fetchJson(
+        WORKER_URL,
+        "external_risk.json"
+      );
+    } catch (error) {
+      console.info(
+        "R2 external_risk 尚未建立或不可用。",
+        error
+      );
+      return null;
+    }
+  }
+
+  function riskEntryMap() {
+    const entries = Array.isArray(
+      state.externalRisk?.entries
+    ) ? state.externalRisk.entries : [];
+    return new Map(
+      entries.map(entry => [
+        String(entry?.match_key || ""), entry
+      ])
+    );
+  }
+
+  function riskEntryForRow(row, { pending = true } = {}) {
+    if (!geminiClient.isExternalRiskEligible(row)) return null;
+    const key = geminiClient.externalRiskMatchKey(row);
+    const entry = riskEntryMap().get(key);
+    if (entry && geminiClient.isRiskCacheFresh(entry, row)) {
+      return entry;
+    }
+    return pending ? {
+      match_key: key,
+      item: row?.["項次"],
+      hot_player: row?.["熱門方"],
+      rating: row?.["評級"],
+      status: "pending"
+    } : null;
+  }
+
+  function riskByItem(rows) {
+    const output = {};
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (!geminiClient.isExternalRiskEligible(row)) continue;
+      output[String(row?.["項次"] ?? "")] = riskEntryForRow(row);
+    }
+    return output;
+  }
+
+  function eligibleRiskRows() {
+    return (Array.isArray(state.analysis?.matches)
+      ? state.analysis.matches : [])
+      .filter(row => geminiClient.isExternalRiskEligible(row));
+  }
+
+  function mergeRiskEntry(entry) {
+    const entries = Array.isArray(state.externalRisk?.entries)
+      ? [...state.externalRisk.entries] : [];
+    const key = String(entry?.match_key || "");
+    const index = entries.findIndex(
+      item => String(item?.match_key || "") === key
+    );
+    if (index >= 0) entries[index] = entry;
+    else entries.push(entry);
+    state.externalRisk = { ...(state.externalRisk || {}), entries };
+  }
+
+  function buildExternalRiskDocument(scanStatus = "running") {
+    const rows = eligibleRiskRows();
+    const map = riskEntryMap();
+    const entries = [];
+    for (const row of rows) {
+      const entry = map.get(geminiClient.externalRiskMatchKey(row));
+      if (entry) entries.push(entry);
+    }
+    const completed = entries.filter(entry => [
+      "risk_found", "clear", "insufficient", "failed"
+    ].includes(String(entry?.status || ""))).length;
+    return {
+      version: "external-risk-v1",
+      generated_at_taiwan: new Date().toISOString(),
+      analysis_generated_at: state.analysis?.generated_at_taiwan ?? null,
+      scan_status: scanStatus,
+      scan_total: rows.length,
+      scan_completed: completed,
+      risk_found_count: entries.filter(item => item?.status === "risk_found").length,
+      insufficient_count: entries.filter(item => ["insufficient", "failed"].includes(item?.status)).length,
+      entries
+    };
+  }
+
+  function updateRiskStatus() {
+    if (!elements.riskStatus) return;
+    const rows = eligibleRiskRows();
+    const map = riskEntryMap();
+    let completed = 0;
+    let risks = 0;
+    let unknown = 0;
+    for (const row of rows) {
+      const entry = map.get(geminiClient.externalRiskMatchKey(row));
+      if (!entry || !geminiClient.isRiskCacheFresh(entry, row)) continue;
+      completed += 1;
+      if (entry.status === "risk_found") risks += 1;
+      if (["insufficient", "failed"].includes(entry.status)) unknown += 1;
+    }
+    elements.riskStatus.className = "risk-status";
+    if (!rows.length) {
+      elements.riskStatus.textContent = "外部風險：無 A／B 待掃描";
+      elements.riskStatus.classList.add("complete");
+      return;
+    }
+    if (state.riskScanning) {
+      elements.riskStatus.textContent = `外部風險掃描 ${completed}/${rows.length}` + (risks ? `｜警示 ${risks}` : "");
+      elements.riskStatus.classList.add("scanning");
+      return;
+    }
+    if (completed === rows.length) {
+      elements.riskStatus.textContent = `外部風險完成 ${completed}/${rows.length}｜警示 ${risks}` + (unknown ? `｜待確認 ${unknown}` : "");
+      elements.riskStatus.classList.add(risks ? "warning" : (unknown ? "unknown" : "complete"));
+      return;
+    }
+    elements.riskStatus.textContent = `外部風險待掃描 ${completed}/${rows.length}`;
+    elements.riskStatus.classList.add("unknown");
+  }
+
+  function refreshRiskSlot(item, entry) {
+    const value = String(item ?? "");
+    const selector = `.external-risk-slot[data-risk-item="${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"]`;
+    document.querySelectorAll(selector).forEach(slot => {
+      slot.innerHTML = renderer.externalRiskIcon(entry, item);
+    });
+  }
+
+  function riskStatusLabel(entry) {
+    if (entry?.status === "risk_found") {
+      return entry?.severity === "high" ? "紅色警示｜高風險" : "紅色警示｜需注意";
+    }
+    if (entry?.status === "clear") return "掃描完成｜未找到明確風險";
+    if (entry?.status === "failed") return "搜尋失敗";
+    return "資料不足｜待人工確認";
+  }
+
+  function appendRiskText(parent, className, text) {
+    if (!String(text || "").trim()) return;
+    const node = document.createElement("p");
+    node.className = className;
+    node.textContent = String(text);
+    parent.appendChild(node);
+  }
+
+  function openRiskDialog(entry) {
+    if (!entry || entry.status === "pending") return;
+    elements.riskDialogTitle.textContent = `外部風險｜${entry.hot_player || "熱門方"}`;
+    elements.riskDialogSubtitle.textContent = [
+      entry.date_time_taipei,
+      entry.league,
+      `評級 ${entry.rating || "—"}`
+    ].filter(Boolean).join("｜");
+
+    const body = elements.riskDialogBody;
+    body.innerHTML = "";
+    const overview = document.createElement("section");
+    overview.className = `risk-overview ${entry.status || "risk-unknown"}`;
+    const badge = document.createElement("span");
+    badge.className = `risk-badge ${entry.status || "risk-unknown"}`;
+    badge.textContent = riskStatusLabel(entry);
+    overview.appendChild(badge);
+    appendRiskText(overview, "risk-summary", entry.summary);
+    appendRiskText(overview, "risk-impact", entry.impact);
+    body.appendChild(overview);
+
+    if (Array.isArray(entry.evidence) && entry.evidence.length) {
+      const section = document.createElement("section");
+      section.className = "risk-section";
+      const title = document.createElement("h3");
+      title.textContent = "找到的事項";
+      section.appendChild(title);
+      const list = document.createElement("ol");
+      list.className = "risk-evidence";
+      for (const evidence of entry.evidence) {
+        const item = document.createElement("li");
+        const time = document.createElement("time");
+        time.textContent = evidence?.date || "日期未明";
+        item.appendChild(time);
+        item.appendChild(document.createTextNode(`｜${evidence?.fact || ""}`));
+        if (evidence?.relevance) {
+          const relevance = document.createElement("small");
+          relevance.textContent = `與本場關係：${evidence.relevance}`;
+          item.appendChild(relevance);
+        }
+        list.appendChild(item);
+      }
+      section.appendChild(list);
+      body.appendChild(section);
+    }
+
+    if (Array.isArray(entry.sources) && entry.sources.length) {
+      const section = document.createElement("section");
+      section.className = "risk-section";
+      const title = document.createElement("h3");
+      title.textContent = "查證來源";
+      section.appendChild(title);
+      const list = document.createElement("ul");
+      list.className = "risk-source-list";
+      for (const source of entry.sources) {
+        const uri = String(source?.uri || "").trim();
+        if (!uri) continue;
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = uri;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = String(source?.title || uri);
+        item.appendChild(link);
+        list.appendChild(item);
+      }
+      section.appendChild(list);
+      body.appendChild(section);
+    }
+
+    if (entry.notes) {
+      const notes = document.createElement("section");
+      notes.className = "risk-section";
+      const title = document.createElement("h3");
+      title.textContent = "補充";
+      notes.appendChild(title);
+      appendRiskText(notes, "risk-summary", entry.notes);
+      body.appendChild(notes);
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "risk-meta";
+    const confidence = Number(entry.confidence);
+    meta.textContent = `檢查時間：${taiwanTimeText(entry.checked_at)}｜可信度：${Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "—"}｜模型：${entry.model || "—"}`;
+    body.appendChild(meta);
+    const disclaimer = document.createElement("div");
+    disclaimer.className = "risk-disclaimer";
+    disclaimer.textContent = "外部風險是評級後的獨立覆核，不會自動修改 A／B。沒有紅色警示只代表本次可靠搜尋未找到明確問題，不代表球員絕對沒有風險。";
+    body.appendChild(disclaimer);
+    elements.riskDialog.showModal();
+  }
+
+  async function persistExternalRisk(scanStatus) {
+    const token = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
+    const documentData = buildExternalRiskDocument(scanStatus);
+    state.externalRisk = documentData;
+    await r2Client.uploadExternalRisk(WORKER_URL, token, documentData);
+    return documentData;
+  }
+
+  function cancelExternalRiskScan() {
+    state.riskScanGeneration += 1;
+    state.riskScanning = false;
+    if (state.riskScanTimer !== null) {
+      clearTimeout(state.riskScanTimer);
+      state.riskScanTimer = null;
+    }
+    updateRiskStatus();
+  }
+
+  async function startExternalRiskScan() {
+    if (state.riskScanning || !state.analysis?.matches) return;
+    const generation = state.riskScanGeneration;
+    const rows = eligibleRiskRows();
+    if (!rows.length) { updateRiskStatus(); return; }
+    const existingEntries = Array.isArray(state.externalRisk?.entries) ? state.externalRisk.entries : [];
+    const oldMap = new Map(existingEntries.map(entry => [String(entry?.match_key || ""), entry]));
+    const staleRows = rows.filter(row => !geminiClient.isRiskCacheFresh(oldMap.get(geminiClient.externalRiskMatchKey(row)), row));
+    if (!staleRows.length) { updateRiskStatus(); return; }
+
+    let workerToken;
+    try {
+      workerToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
+    } catch (error) {
+      console.error(error);
+      for (const row of staleRows) {
+        const match = geminiClient.compactRiskMatch(row);
+        const entry = { ...match, status: "failed", severity: "unknown", confidence: 0, summary: "缺少 Worker Token，外部風險未執行。", impact: "", evidence: [], notes: error.message, sources: [], checked_at: new Date().toISOString(), model: geminiSettings.model };
+        mergeRiskEntry(entry);
+        refreshRiskSlot(row?.["項次"], entry);
+      }
+      updateRiskStatus();
+      return;
+    }
+
+    state.riskScanning = true;
+    updateRiskStatus();
+    try {
+      const result = await geminiClient.scanExternalRisks(rows, {
+        existingEntries,
+        workerUrl: WORKER_URL,
+        workerToken,
+        model: geminiSettings.model,
+        delayMs: 1400,
+        onPending: async row => {
+          if (generation !== state.riskScanGeneration) {
+            throw new Error("RISK_SCAN_SUPERSEDED");
+          }
+          refreshRiskSlot(row?.["項次"], {
+            status: "pending",
+            item: row?.["項次"]
+          });
+        },
+        onEntry: async (entry, progress) => {
+          if (generation !== state.riskScanGeneration) {
+            throw new Error("RISK_SCAN_SUPERSEDED");
+          }
+          mergeRiskEntry(entry);
+          refreshRiskSlot(entry.item, entry);
+          updateRiskStatus();
+          try { await persistExternalRisk("running"); } catch (error) { console.error("external_risk 暫存失敗", error); }
+          elements.statusText.textContent = `外部風險覆核｜已完成 ${progress.completed}/${progress.total}｜熱門方 ${entry.hot_player}｜${riskStatusLabel(entry)}`;
+        },
+        onProgress: updateRiskStatus
+      });
+      if (generation !== state.riskScanGeneration) {
+        throw new Error("RISK_SCAN_SUPERSEDED");
+      }
+      for (const entry of result.entries) {
+        mergeRiskEntry(entry);
+        refreshRiskSlot(entry.item, entry);
+      }
+      await persistExternalRisk("complete");
+    } catch (error) {
+      if (error?.message !== "RISK_SCAN_SUPERSEDED") {
+        console.error("外部風險掃描發生未預期錯誤", error);
+        elements.statusText.textContent = `外部風險掃描錯誤：${error.message}`;
+      }
+    } finally {
+      if (generation === state.riskScanGeneration) {
+        state.riskScanning = false;
+        updateRiskStatus();
+      }
+    }
+  }
+
+  function scheduleExternalRiskScan(delay = 500) {
+    if (state.riskScanTimer !== null) clearTimeout(state.riskScanTimer);
+    state.riskScanTimer = setTimeout(() => {
+      state.riskScanTimer = null;
+      void startExternalRiskScan();
+    }, delay);
   }
 
   function updateTodayState(today) {
@@ -226,6 +582,7 @@
     const savedAnalysis = await r2Client.fetchJson(WORKER_URL, "ratio_analysis.json");
     state.analysis = savedAnalysis;
     renderAnalysis(savedAnalysis, state.today);
+    scheduleExternalRiskScan(650);
 
     const health = savedAnalysis.run_health || {};
     const ratings = health.rating_counts || {};
@@ -267,6 +624,7 @@
   }
 
   async function runFullPipelinePhase4() {
+    cancelExternalRiskScan();
     setRunning(true);
     elements.statusLine.classList.remove("error");
     elements.statusText.textContent =
@@ -320,6 +678,7 @@
   }
 
   async function rerunCurrentListPhase4() {
+    cancelExternalRiskScan();
     setRunning(true);
     elements.statusLine.classList.remove("error");
     elements.statusText.textContent =
@@ -355,8 +714,11 @@
   }
 
   function renderAnalysis(analysis, today) {
+    state.riskScanGeneration += 1;
     const rows = Array.isArray(analysis?.matches) ? analysis.matches : [];
-    const rendered = renderer.renderRows(rows);
+    const rendered = renderer.renderRows(rows, {
+      riskByItem: riskByItem(rows)
+    });
 
     state.table = document.querySelector("table.main");
     state.tbody = state.table?.tBodies?.[0] || null;
@@ -386,6 +748,7 @@
 
     setupSorting();
     applyFilters();
+    updateRiskStatus();
 
     const todayCount = Array.isArray(today?.matches) ? today.matches.length : 0;
     elements.statusLine.classList.remove("running", "error");
@@ -776,17 +1139,20 @@
     elements.statusText.textContent =
       "正在以 JavaScript 讀取 R2 ratio_analysis.json、today_matches.json、source_bundle.json 與 ratio_config.json……";
     try {
-      const [analysis, today, sourceBundle, config] = await Promise.all([
+      const [analysis, today, sourceBundle, config, externalRisk] = await Promise.all([
         fetchLatestAnalysis(),
         fetchLatestTodayMatches(),
         r2Client.fetchJson(WORKER_URL, "source_bundle.json").catch(() => null),
-        fetchJson("ratio_config.json")
+        fetchJson("ratio_config.json"),
+        fetchLatestExternalRisk()
       ]);
       state.analysis = analysis;
       state.today = today;
       state.sourceBundle = sourceBundle;
       state.config = config;
+      state.externalRisk = externalRisk;
       renderAnalysis(analysis, today);
+      scheduleExternalRiskScan(800);
       if (sourceBundle?.matches) {
         const health = sourceBundle.source_health || {};
         const missingSettings = [];
@@ -937,6 +1303,24 @@
     }
   });
 
+
+  document.addEventListener("click", event => {
+    const button = event.target.closest?.(".external-risk-icon[data-risk-item]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const item = String(button.dataset.riskItem || "");
+    const row = (Array.isArray(state.analysis?.matches) ? state.analysis.matches : []).find(candidate => String(candidate?.["項次"] ?? "") === item);
+    if (!row) return;
+    const entry = riskEntryMap().get(geminiClient.externalRiskMatchKey(row));
+    if (entry) openRiskDialog(entry);
+  });
+
+  document.getElementById("risk-dialog-close").addEventListener("click", () => elements.riskDialog.close());
+  elements.riskDialog.addEventListener("click", event => {
+    if (event.target === elements.riskDialog) elements.riskDialog.close();
+  });
+
   elements.chatToggle.setAttribute("aria-expanded", "false");
   elements.chatToggle.addEventListener("click", () => {
     setDrawer(!elements.drawer.classList.contains("open"));
@@ -1049,7 +1433,9 @@
     reloadData: loadData,
     getAnalysis: () => state.analysis,
     getTodayMatches: () => state.today,
-    getSourceBundle: () => state.sourceBundle
+    getSourceBundle: () => state.sourceBundle,
+    getExternalRisk: () => state.externalRisk,
+    scanExternalRisk: startExternalRiskScan
   };
 
   window.addEventListener("unhandledrejection", event => {
