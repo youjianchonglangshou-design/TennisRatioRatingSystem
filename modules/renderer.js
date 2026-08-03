@@ -152,6 +152,74 @@
     return similarity(expected, actual) >= 0.88;
   }
 
+
+  function externalRiskIcon(entry, itemNumber) {
+    const status = String(entry?.status || "pending");
+    const item = escapeHtml(itemNumber ?? "");
+
+    if (status === "clear") return "";
+
+    if (status === "risk_found") {
+      const severity = String(entry?.severity || "medium");
+      const title = severity === "high"
+        ? "外部風險：高｜點擊查看"
+        : "外部風險：需注意｜點擊查看";
+      return (
+        `<button type="button" ` +
+        `class="external-risk-icon risk-found ${escapeHtml(severity)}" ` +
+        `data-risk-item="${item}" ` +
+        `title="${escapeHtml(title)}" ` +
+        `aria-label="${escapeHtml(title)}">!!</button>`
+      );
+    }
+
+    if (["insufficient", "failed"].includes(status)) {
+      const title = status === "failed"
+        ? "外部風險搜尋失敗｜點擊查看"
+        : "外部風險資料不足｜點擊查看";
+      return (
+        `<button type="button" ` +
+        `class="external-risk-icon risk-unknown" ` +
+        `data-risk-item="${item}" ` +
+        `title="${escapeHtml(title)}" ` +
+        `aria-label="${escapeHtml(title)}">?</button>`
+      );
+    }
+
+    return (
+      `<span class="external-risk-icon risk-pending" ` +
+      `title="正在掃描外部風險" ` +
+      `aria-label="正在掃描外部風險">…</span>`
+    );
+  }
+
+  function playerNameWithRisk(
+    name,
+    {
+      favorite = false,
+      showRisk = false,
+      riskEntry = null,
+      itemNumber = null
+    } = {}
+  ) {
+    const label = favorite
+      ? `<span class="favorite">${escapeHtml(name)}</span>`
+      : escapeHtml(name);
+    const risk = showRisk
+      ? (
+          `<span class="external-risk-slot" ` +
+          `data-risk-item="${escapeHtml(itemNumber ?? "")}">` +
+          externalRiskIcon(riskEntry, itemNumber) +
+          `</span>`
+        )
+      : "";
+
+    return (
+      `<span class="player-name-wrap">` +
+      `${label}${risk}</span>`
+    );
+  }
+
   function rankValue(row, side) {
     const key = side === "home" ? "主場名次" : "客場名次";
     const rank = integer(row?.[key]);
@@ -744,7 +812,7 @@
     return `<div class="tip-title integrated-title"><span>TennisRatio 雙方數據比較</span><strong>＋</strong><span class="integrated-rating-title">評級熱門方勝率</span>${h2hTitle}<span class="card-item">${escapeHtml(itemText)}</span></div><div class="surface">Last 52 Weeks｜${escapeHtml(ratio["場地"] || "場地待補")}　來源：${escapeHtml(ratio["場地來源"] || "待補")}</div><div class="analysis-grid"><section class="stats-tabs-shell" data-default-stats-tab="${defaultScope}"><div class="stats-tab-list" role="tablist" aria-label="TennisRatio數據範圍"><button type="button" class="stats-tab${defaultScope === "all" ? " active" : ""}" data-stats-tab="all" role="tab" aria-selected="${defaultScope === "all" ? "true" : "false"}">All Levels｜同場地</button><button type="button" class="stats-tab${defaultScope === "main" ? " active" : ""}" data-stats-tab="main" role="tab" aria-selected="${defaultScope === "main" ? "true" : "false"}">Main Tour｜同場地</button></div><div class="stats-tab-panel${defaultScope === "all" ? " active" : ""}" data-stats-panel="all" role="tabpanel">${allPanel}</div><div class="stats-tab-panel${defaultScope === "main" ? " active" : ""}" data-stats-panel="main" role="tabpanel">${mainPanel}</div>${bo3PredictionPanel(row, { homeName, awayName })}</section><section class="formula-section">${modelDetail(row, { embedded: true })}</section></div>`;
   }
 
-  function renderRow(row, index) {
+  function renderRow(row, index, options = {}) {
     const rowId = `r${index}`;
     const homeRank = rankValue(row, "home");
     const awayRank = rankValue(row, "away");
@@ -762,9 +830,32 @@
     const coldCandidate = isColdCandidate(row);
     const [matchSort, summary] = matchSummary(row);
     const copyDate = copyMatchDate(row?.["日期時間"]);
-    const homeLabel = hotName === homeName ? `<span class="favorite">${escapeHtml(homeName)}</span>` : escapeHtml(homeName);
-    const awayLabel = hotName === awayName ? `<span class="favorite">${escapeHtml(awayName)}</span>` : escapeHtml(awayName);
     const rating = String(row?.["評級"] || "尚未分析");
+    const riskByItem =
+      options.riskByItem &&
+      typeof options.riskByItem === "object"
+        ? options.riskByItem
+        : {};
+    const riskItemKey = String(row?.["項次"] ?? "");
+    const showRisk = Object.prototype.hasOwnProperty.call(
+      riskByItem,
+      riskItemKey
+    );
+    const riskEntry = showRisk
+      ? riskByItem[riskItemKey]
+      : null;
+    const homeLabel = playerNameWithRisk(homeName, {
+      favorite: hotName === homeName,
+      showRisk: showRisk && hotName === homeName,
+      riskEntry,
+      itemNumber: row?.["項次"]
+    });
+    const awayLabel = playerNameWithRisk(awayName, {
+      favorite: hotName === awayName,
+      showRisk: showRisk && hotName === awayName,
+      riskEntry,
+      itemNumber: row?.["項次"]
+    });
     const searchText = ["項次", "日期時間", "聯賽", "主場", "客場", "熱門方", "評級", "分析狀態"]
       .map(key => String(row?.[key] || ""))
       .join(" ")
@@ -803,8 +894,10 @@
     return counts;
   }
 
-  function renderRows(rows) {
-    const rendered = rows.map((row, index) => renderRow(row, index));
+  function renderRows(rows, options = {}) {
+    const rendered = rows.map(
+      (row, index) => renderRow(row, index, options)
+    );
     return {
       rowsHtml: rendered.map(item => item.rowHtml).join(""),
       templatesHtml: rendered.map(item => item.templatesHtml).join(""),
@@ -821,6 +914,8 @@
     numberText,
     compatibleName,
     rankPill,
+    externalRiskIcon,
+    playerNameWithRisk,
     ratingClass,
     dSignalStyle,
     dSignalCompact,

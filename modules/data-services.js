@@ -2425,11 +2425,65 @@
     return response.json();
   }
 
+
+  async function uploadExternalRisk(
+    workerUrl,
+    uploadToken,
+    externalRisk
+  ) {
+    const base = normalizeBaseUrl(workerUrl);
+    const token = String(uploadToken || "").trim();
+
+    if (!base) {
+      throw new Error("WORKER_URL 尚未設定。");
+    }
+    if (!token) {
+      throw new Error("WORKER_UPLOAD_TOKEN 尚未填入。");
+    }
+    if (
+      !externalRisk ||
+      !Array.isArray(externalRisk.entries)
+    ) {
+      throw new Error(
+        "external_risk 必須是含 entries 陣列的 JSON 物件。"
+      );
+    }
+
+    const response = await fetch(
+      `${base}/upload-risk`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          external_risk: externalRisk
+        }),
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      const detail = await responseDetail(
+        response,
+        "Worker 外部風險上傳失敗"
+      );
+      throw new Error(
+        `Worker HTTP ${response.status}：${detail}`
+      );
+    }
+
+    return response.json();
+  }
+
   return {
     normalizeBaseUrl,
     fetchJson,
     uploadOddsBundle,
     uploadSourceBundle,
-    uploadAnalysis
+    uploadAnalysis,
+    uploadExternalRisk
   };
 });
