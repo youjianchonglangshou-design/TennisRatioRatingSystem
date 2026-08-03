@@ -154,16 +154,42 @@
 
 
   function externalRiskIcon(entry, itemNumber) {
-    const status = String(entry?.status || "pending");
+    const rawStatus = String(
+      entry?.status || "pending"
+    );
+    const status = rawStatus === "insufficient"
+      ? "manual_review"
+      : (
+          [
+            "format_error",
+            "quota_429",
+            "network_timeout",
+            "failed"
+          ].includes(rawStatus)
+            ? "search_incomplete"
+            : (
+                rawStatus === "auth_401_403"
+                  ? "system_error"
+                  : rawStatus
+              )
+        );
     const item = escapeHtml(itemNumber ?? "");
 
-    if (status === "clear") return "";
+    if (
+      status === "clear" ||
+      status === "system_error"
+    ) {
+      return "";
+    }
 
     if (status === "risk_found") {
-      const severity = String(entry?.severity || "medium");
+      const severity = String(
+        entry?.severity || "medium"
+      );
       const title = severity === "high"
         ? "外部風險：高｜點擊查看"
         : "外部風險：需注意｜點擊查看";
+
       return (
         `<button type="button" ` +
         `class="external-risk-icon risk-found ${escapeHtml(severity)}" ` +
@@ -173,16 +199,29 @@
       );
     }
 
-    if (["insufficient", "failed"].includes(status)) {
-      const title = status === "failed"
-        ? "外部風險搜尋失敗｜點擊查看"
-        : "外部風險資料不足｜點擊查看";
+    if (status === "manual_review") {
+      const title =
+        "找到外部資訊，需要人工判讀｜點擊查看";
+
       return (
         `<button type="button" ` +
-        `class="external-risk-icon risk-unknown" ` +
+        `class="external-risk-icon risk-review" ` +
         `data-risk-item="${item}" ` +
         `title="${escapeHtml(title)}" ` +
-        `aria-label="${escapeHtml(title)}">?</button>`
+        `aria-label="${escapeHtml(title)}">i</button>`
+      );
+    }
+
+    if (status === "search_incomplete") {
+      const title =
+        "搜尋尚未完成，下次重新分析會重試｜點擊查看";
+
+      return (
+        `<button type="button" ` +
+        `class="external-risk-icon risk-retry" ` +
+        `data-risk-item="${item}" ` +
+        `title="${escapeHtml(title)}" ` +
+        `aria-label="${escapeHtml(title)}">↻</button>`
       );
     }
 

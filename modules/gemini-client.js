@@ -8,7 +8,7 @@
   const MAX_RETRIES = 3;
   const REQUEST_TIMEOUT_MS = 120000;
   const RISK_SCAN_DELAY_MS = 1400;
-  const RISK_CACHE_HOURS = 6;
+  const RISK_RESOLVED_CACHE_HOURS = 6;
 
   const DEFAULT_SYSTEM_PROMPT =
     "你是 TennisRatio 網球賽事分析助理。全程使用繁體中文，回答清楚、精確、可覆盤。" +
@@ -287,17 +287,66 @@
     return Boolean(String(row?.["熱門方"] || "").trim());
   }
 
-  function isFinalRiskStatus(value) {
+  function normalizeRiskStatus(value) {
+    const status = String(value || "");
+
+    // 舊版 insufficient 直接視為 manual_review。
+    if (status === "insufficient") {
+      return "manual_review";
+    }
+
+    if ([
+      "format_error",
+      "quota_429",
+      "network_timeout",
+      "failed"
+    ].includes(status)) {
+      return "search_incomplete";
+    }
+
+    if (status === "auth_401_403") {
+      return "system_error";
+    }
+
+    return status;
+  }
+
+  function isRiskResolvedStatus(value) {
     return [
       "risk_found",
       "clear",
-      "insufficient",
-      "failed"
-    ].includes(String(value || ""));
+      "manual_review"
+    ].includes(normalizeRiskStatus(value));
+  }
+
+  function isRiskFailureStatus(value) {
+    return [
+      "search_incomplete",
+      "system_error"
+    ].includes(normalizeRiskStatus(value));
+  }
+
+  function riskCacheHours(entry) {
+    const status = normalizeRiskStatus(entry?.status);
+
+    if ([
+      "risk_found",
+      "clear",
+      "manual_review"
+    ].includes(status)) {
+      const explicit = Number(entry?.cache_hours);
+      return Number.isFinite(explicit) && explicit > 0
+        ? explicit
+        : RISK_RESOLVED_CACHE_HOURS;
+    }
+
+    return 0;
   }
 
   function isRiskCacheFresh(entry, row, nowMs = Date.now()) {
-    if (!entry || !isFinalRiskStatus(entry.status)) return false;
+    if (!entry || !isRiskResolvedStatus(entry.status)) {
+      return false;
+    }
     if (
       String(entry.match_key || "") !==
       externalRiskMatchKey(row)
@@ -317,14 +366,17 @@
       return false;
     }
 
-    const checkedAt = Date.parse(String(entry.checked_at || ""));
+    const checkedAt = Date.parse(
+      String(entry.checked_at || "")
+    );
     if (!Number.isFinite(checkedAt)) return false;
 
-    // 同一 match_key、熱門方與評級在六小時內，
-    // 直接使用 R2 external_risk.json 的既有結果。
+    const hours = riskCacheHours(entry);
+    if (!(hours > 0)) return false;
+
     return (
       nowMs - checkedAt <=
-      RISK_CACHE_HOURS * 3600000
+      hours * 3600000
     );
   }
 
@@ -395,6 +447,8 @@
     const allowedStatus = new Set([
       "risk_found",
       "clear",
+      "manual_review",
+      // 相容舊格式。
       "insufficient"
     ]);
     const allowedSeverity = new Set([
@@ -411,26 +465,44 @@
       "schedule",
       "travel",
       "official_status",
+      "training",
+      "form",
+      "neutral",
       "other"
     ]);
 
-    const status = allowedStatus.has(String(parsed?.status))
+    const rawStatus = allowedStatus.has(
+      String(parsed?.status)
+    )
       ? String(parsed.status)
-      : "insufficient";
-    const severity = allowedSeverity.has(String(parsed?.severity))
+      : "manual_review";
+    const status = normalizeRiskStatus(rawStatus);
+
+    const severity = allowedSeverity.has(
+      String(parsed?.severity)
+    )
       ? String(parsed.severity)
-      : (status === "clear" ? "none" : "unknown");
+      : (
+          status === "clear"
+            ? "none"
+            : "unknown"
+        );
+
     const confidenceValue = Number(parsed?.confidence);
     const confidence = Number.isFinite(confidenceValue)
       ? Math.max(0, Math.min(1, confidenceValue))
       : 0;
 
-    const evidence = (
-      Array.isArray(parsed?.evidence)
-        ? parsed.evidence
-        : []
-    )
-      .slice(0, 6)
+    const rawFindings = Array.isArray(parsed?.findings)
+      ? parsed.findings
+      : (
+          Array.isArray(parsed?.evidence)
+            ? parsed.evidence
+            : []
+        );
+
+    const findings = rawFindings
+      .slice(0, 12)
       .map(item => ({
         date:
           String(item?.date || "").trim() || null,
@@ -439,39 +511,243 @@
         )
           ? String(item.category)
           : "other",
+        title:
+          String(
+            item?.title ||
+            item?.fact ||
+            "近期資訊"
+          ).trim().slice(0, 240),
         fact:
-          String(item?.fact || "").trim().slice(0, 600),
+          String(
+            item?.fact ||
+            item?.title ||
+            ""
+          ).trim().slice(0, 900),
         relevance:
-          String(item?.relevance || "").trim().slice(0, 600)
+          String(
+            item?.relevance ||
+            item?.possible_relevance ||
+            ""
+          ).trim().slice(0, 900),
+        direction:
+          ["negative", "neutral", "positive"].includes(
+            String(item?.direction || "")
+          )
+            ? String(item.direction)
+            : "neutral"
       }))
-      .filter(item => item.fact);
+      .filter(item => item.fact || item.title);
 
     return {
       status,
       severity,
       confidence,
       summary:
-        String(parsed?.summary || "").trim().slice(0, 900),
+        String(parsed?.summary || "")
+          .trim()
+          .slice(0, 1200),
       impact:
-        String(parsed?.impact || "").trim().slice(0, 900),
-      evidence,
+        String(parsed?.impact || "")
+          .trim()
+          .slice(0, 1200),
+      findings,
+      // 相容既有畫面欄位。
+      evidence: findings,
       notes:
-        String(parsed?.notes || "").trim().slice(0, 900)
+        String(parsed?.notes || "")
+          .trim()
+          .slice(0, 1200),
+      raw_summary:
+        String(
+          parsed?.raw_summary ||
+          parsed?.search_summary ||
+          ""
+        ).trim().slice(0, 12000)
+    };
+  }
+
+
+  function createRiskRequestError(
+    message,
+    {
+      failureType = "network_timeout",
+      httpStatus = null,
+      retryAfterSeconds = null,
+      cause = null
+    } = {}
+  ) {
+    const error = new Error(message);
+    error.failureType = failureType;
+    error.httpStatus = httpStatus;
+    error.retryAfterSeconds = retryAfterSeconds;
+    error.cause = cause;
+    return error;
+  }
+
+  function friendlyRiskFailure(error) {
+    const technicalError =
+      error?.message || String(error || "未知錯誤");
+    const lower =
+      technicalError.toLocaleLowerCase("en-US");
+
+    let failureType = String(
+      error?.failureType || ""
+    );
+
+    if (!failureType) {
+      if (
+        lower.includes("401") ||
+        lower.includes("403") ||
+        lower.includes("unauthorized") ||
+        lower.includes("forbidden")
+      ) {
+        failureType = "auth_401_403";
+      } else if (
+        lower.includes("429") ||
+        lower.includes("quota") ||
+        lower.includes("rate limit")
+      ) {
+        failureType = "quota_429";
+      } else if (
+        lower.includes("json") ||
+        technicalError.includes("回覆不是") ||
+        technicalError.includes("解析失敗")
+      ) {
+        failureType = "format_error";
+      } else {
+        failureType = "network_timeout";
+      }
+    }
+
+    if (failureType === "auth_401_403") {
+      return {
+        public_status: "system_error",
+        failure_type: "auth_401_403",
+        summary:
+          "外部風險掃描暫停：Gemini API Key 或權限驗證失敗。",
+        impact:
+          "這是系統設定問題，不是任何一位球員的風險。",
+        notes:
+          "請檢查 Cloudflare Worker 的 GEMINI_API_KEY、UPLOAD_TOKEN 與權限設定。",
+        http_status:
+          Number(error?.httpStatus) || null,
+        retry_after_seconds: null,
+        technical_error: technicalError
+      };
+    }
+
+    if (failureType === "quota_429") {
+      return {
+        public_status: "search_incomplete",
+        failure_type: "quota_429",
+        summary:
+          "本場搜尋尚未完成：Gemini 暫時達到使用上限。",
+        impact:
+          "這是 API 使用量問題，不是球員風險。",
+        notes:
+          "系統會依服務回傳的等待時間暫停，再繼續其他場次；本場下次重新分析時會再查。",
+        http_status:
+          Number(error?.httpStatus) || 429,
+        retry_after_seconds:
+          Number(error?.retryAfterSeconds) || null,
+        technical_error: technicalError
+      };
+    }
+
+    if (failureType === "format_error") {
+      return {
+        public_status: "search_incomplete",
+        failure_type: "format_error",
+        summary:
+          "本場搜尋尚未完成。",
+        impact:
+          "這次沒有取得可可靠呈現的搜尋內容，因此不會判定球員有風險或沒有風險。",
+        notes:
+          "灰色 ↻ 只代表需要重試。下次重新分析時會自動再查。",
+        http_status: null,
+        retry_after_seconds: null,
+        technical_error: technicalError
+      };
+    }
+
+    return {
+      public_status: "search_incomplete",
+      failure_type: "network_timeout",
+      summary:
+        "本場搜尋尚未完成：連線逾時或外部服務暫時沒有回應。",
+      impact:
+        "這不是球員風險，只代表這次沒有查完。",
+      notes:
+        "灰色 ↻ 代表下次重新分析會自動重試。",
+      http_status:
+        Number(error?.httpStatus) || null,
+      retry_after_seconds: null,
+      technical_error: technicalError
+    };
+  }
+
+  async function repairRiskJson(
+    rawAnswer,
+    options = {}
+  ) {
+    const model =
+      String(options.model || DEFAULT_MODEL).trim() ||
+      DEFAULT_MODEL;
+
+    const repairPayload = {
+      systemInstruction: {
+        parts: [{
+          text:
+            "你是 JSON 格式修復器。請把使用者提供的外部風險分析文字整理成指定 JSON。" +
+            "不得新增原文沒有的事實、日期、來源或風險。只輸出 JSON，不要 Markdown。" +
+            '格式：{"status":"risk_found|clear|manual_review","severity":"high|medium|none|unknown","confidence":0到1,"summary":"一句話結論","impact":"與本場的可能影響","findings":[{"date":"YYYY-MM-DD或null","category":"injury|illness|retirement|fatigue|schedule|travel|official_status|training|form|neutral|other","title":"簡短標題","fact":"找到的事實","relevance":"與本場的可能關係","direction":"negative|neutral|positive"}],"notes":"必要補充","raw_summary":"原始資訊摘要"}'
+        }]
+      },
+      contents: [{
+        role: "user",
+        parts: [{
+          text:
+            "請只修復格式，不得改寫或補充事實：\n\n" +
+            String(rawAnswer || "").slice(0, 12000)
+        }]
+      }],
+      generationConfig: {
+        ...generationConfigForModel(model),
+        maxOutputTokens: 1800
+      }
+    };
+
+    const response = await postRiskProxy({
+      model,
+      request: repairPayload
+    }, options);
+
+    return {
+      parsed: parseRiskResponse(
+        extractText(response.payload)
+      ),
+      retryCount: response.retryCount,
+      requestBytes: response.requestBytes
     };
   }
 
   function buildRiskSystemText(row) {
     const match = compactRiskMatch(row);
+
     return (
-      "你是 TennisRatio 的賽前外部風險覆核代理。全程使用繁體中文。" +
-      "\n你的唯一任務：使用 Google Search 檢查本場『熱門方』是否存在結構化數據沒有反映、而且可能對本場不利的近期資訊。" +
-      "\n必查範圍：近期傷病、傷退、退賽、疾病、醫療暫停、明確體能問題、前一場超長比賽、短休連戰、密集賽程、跨城市或跨洲移動、官方或選手本人確認的狀態異常。" +
-      "\n紅色風險必須同時符合：有可辨識日期、有可靠來源、與目前熱門方姓名相符、與本場時間接近、合理可能影響本場。" +
-      "\n不可單獨視為風險：很久以前的舊傷、單純近期輸球、排名較差、球迷猜測、無日期文章、沒有來源的社群留言、你自行推測的疲勞。" +
-      "\n若查到的資訊可能是同名不同人，必須判定 insufficient。" +
-      "\n若沒有找到明確不利資訊，status 必須是 clear；這只表示本次可靠搜尋未找到，不代表絕對沒有問題。" +
-      "\n只輸出一個 JSON 物件，不要 Markdown、不要程式碼圍欄、不要額外解釋。" +
-      '\nJSON格式：{"status":"risk_found|clear|insufficient","severity":"high|medium|none|unknown","confidence":0到1,"summary":"一句話結論","impact":"為何可能影響本場","evidence":[{"date":"YYYY-MM-DD或null","category":"injury|illness|retirement|fatigue|schedule|travel|official_status|other","fact":"可驗證事實","relevance":"與本場的直接關係"}],"notes":"必要補充"}' +
+      "你是 TennisRatio 的賽前外部資訊搜尋與風險覆核代理。全程使用繁體中文。" +
+      "\n你的工作分成兩層：第一層整理搜尋到的所有近期資訊；第二層才判斷是否構成明確風險。" +
+      "\n不可因為無法判斷風險，就刪除、隱藏或省略已找到的資訊。" +
+      "\n必查：近期傷病、傷退、退賽、疾病、醫療暫停、體能、上一場耗時、短休連戰、密集賽程、旅行、訓練、官方或選手本人發言、近期狀態。" +
+      "\nfindings 必須保存所有具體且與該球員近期狀況有關的資訊，即使它是中性、正面、與風險沒有直接關係，仍要留下供人類自行判讀。" +
+      "\n狀態只允許三種：" +
+      "\n1. risk_found：找到有日期、有可靠來源、與本場直接相關的明確不利資訊。" +
+      "\n2. clear：搜尋成功，而且沒有找到任何值得呈現的近期異常或狀態資訊；findings 應為空。" +
+      "\n3. manual_review：找到具體近期資訊，但不足以確定是明確風險，或正反資訊混合；必須完整保留 findings。" +
+      "\n很久以前的舊傷、球迷猜測、無日期說法不能直接判定 risk_found，但若搜尋到且可能有參考價值，可放入 manual_review 並清楚標示限制。" +
+      "\n若有任何具體 findings，卻不能確定為 risk_found，優先使用 manual_review，不要使用 clear。" +
+      "\n只輸出一個 JSON 物件，不要 Markdown、不要程式碼圍欄、不要額外文字。" +
+      '\nJSON格式：{"status":"risk_found|clear|manual_review","severity":"high|medium|none|unknown","confidence":0到1,"summary":"一句話結論","impact":"為何可能影響本場，沒有則留空","findings":[{"date":"YYYY-MM-DD或null","category":"injury|illness|retirement|fatigue|schedule|travel|official_status|training|form|neutral|other","title":"簡短標題","fact":"搜尋到的具體資訊","relevance":"與本場的可能關係","direction":"negative|neutral|positive"}],"notes":"限制或補充","raw_summary":"將搜尋結果整理成可閱讀摘要"}' +
       `\n目前台灣時間：${taipeiTimeText()}` +
       "\n【本場資料】\n" +
       JSON.stringify(match)
@@ -554,26 +830,72 @@
           continue;
         }
 
-        throw new Error(
-          `Gemini Worker錯誤 HTTP ${response.status}：${detail}`
+        if ([401, 403].includes(response.status)) {
+          throw createRiskRequestError(
+            `Gemini Worker錯誤 HTTP ${response.status}：${detail}`,
+            {
+              failureType: "auth_401_403",
+              httpStatus: response.status
+            }
+          );
+        }
+
+        if (response.status === 429) {
+          throw createRiskRequestError(
+            `Gemini Worker錯誤 HTTP 429：${detail}`,
+            {
+              failureType: "quota_429",
+              httpStatus: 429,
+              retryAfterSeconds:
+                retrySeconds(
+                  response,
+                  detail,
+                  attempt
+                )
+            }
+          );
+        }
+
+        throw createRiskRequestError(
+          `Gemini Worker錯誤 HTTP ${response.status}：${detail}`,
+          {
+            failureType: "network_timeout",
+            httpStatus: response.status
+          }
         );
       } catch (error) {
+        if (error?.failureType) {
+          throw error;
+        }
+
         const isAbort = error?.name === "AbortError";
         const retryableNetwork =
           isAbort || error instanceof TypeError;
+
         if (
           retryableNetwork &&
           attempt < MAX_RETRIES
         ) {
           retryCount += 1;
           await sleep(
-            Math.min(1.5 * (2 ** attempt), 12) * 1000
+            Math.min(1.5 * (2 ** attempt), 12) *
+            1000
           );
           continue;
         }
-        if (isAbort) {
-          throw new Error("Gemini Worker連線逾時。");
+
+        if (isAbort || error instanceof TypeError) {
+          throw createRiskRequestError(
+            isAbort
+              ? "Gemini Worker連線逾時。"
+              : "Gemini Worker網路連線失敗。",
+            {
+              failureType: "network_timeout",
+              cause: error
+            }
+          );
         }
+
         throw error;
       } finally {
         clearTimeout(timeoutId);
@@ -581,7 +903,12 @@
     }
 
     if (!responsePayload) {
-      throw new Error("Gemini Worker沒有回傳資料。");
+      throw createRiskRequestError(
+        "Gemini Worker沒有回傳資料。",
+        {
+          failureType: "network_timeout"
+        }
+      );
     }
 
     return {
@@ -593,7 +920,9 @@
 
   async function scanExternalRisk(row, options = {}) {
     if (!isExternalRiskEligible(row)) {
-      throw new Error("此場不符合 A／B 外部風險掃描條件。");
+      throw new Error(
+        "此場不符合 A／B 外部風險掃描條件。"
+      );
     }
 
     const model =
@@ -602,19 +931,21 @@
 
     const requestPayload = {
       systemInstruction: {
-        parts: [{ text: buildRiskSystemText(row) }]
+        parts: [{
+          text: buildRiskSystemText(row)
+        }]
       },
       contents: [{
         role: "user",
         parts: [{
           text:
-            "請立即使用 Google Search 完成本場熱門方外部風險覆核，並依指定格式只輸出 JSON。"
+            "請立即使用 Google Search 搜尋本場熱門方，完整保留所有近期資訊，再依規則輸出 JSON。"
         }]
       }],
       tools: [{ google_search: {} }],
       generationConfig: {
         ...generationConfigForModel(model),
-        maxOutputTokens: 1800
+        maxOutputTokens: 2600
       }
     };
 
@@ -624,72 +955,187 @@
     }, options);
 
     const answer = extractText(response.payload);
-    const grounding = extractGrounding(response.payload);
-    const parsed = parseRiskResponse(answer);
+    const grounding =
+      extractGrounding(response.payload);
 
-    let status = parsed.status;
+    let parsed;
+    let repairRetryCount = 0;
+    let repairRequestBytes = 0;
+
+    try {
+      parsed = parseRiskResponse(answer);
+    } catch (parseError) {
+      try {
+        const repaired = await repairRiskJson(
+          answer,
+          {
+            ...options,
+            model
+          }
+        );
+        parsed = repaired.parsed;
+        repairRetryCount =
+          repaired.retryCount;
+        repairRequestBytes =
+          repaired.requestBytes;
+      } catch (repairError) {
+        if (repairError?.failureType) {
+          throw repairError;
+        }
+
+        // 搜尋文字或來源已經取得，就不得把資訊丟棄。
+        if (
+          String(answer || "").trim() &&
+          (
+            grounding.sources.length > 0 ||
+            grounding.queries.length > 0
+          )
+        ) {
+          parsed = {
+            status: "manual_review",
+            severity: "unknown",
+            confidence: 0.35,
+            summary:
+              "已找到外部資訊，請由人類自行判讀。",
+            impact:
+              "系統無法可靠判定這些資訊是否足以構成明確風險，但搜尋內容已完整保留。",
+            findings: [],
+            evidence: [],
+            notes:
+              "以下是 Gemini 本次搜尋整理與來源。沒有被系統判定為紅色風險，不等於資訊沒有參考價值。",
+            raw_summary:
+              String(answer).trim().slice(0, 12000)
+          };
+        } else {
+          throw createRiskRequestError(
+            "外部資訊搜尋沒有完整完成。",
+            {
+              failureType: "format_error",
+              cause: repairError || parseError
+            }
+          );
+        }
+      }
+    }
+
+    let status =
+      normalizeRiskStatus(parsed.status);
     let severity = parsed.severity;
     let summary = parsed.summary;
     let impact = parsed.impact;
     let notes = parsed.notes;
+    const findings = Array.isArray(
+      parsed.findings
+    )
+      ? parsed.findings
+      : [];
 
+    // 紅色風險未通過門檻時，不丟棄資訊，改成人工判讀。
     if (
       status === "risk_found" &&
       (
         parsed.confidence < 0.72 ||
-        parsed.evidence.length === 0 ||
-        !parsed.evidence.some(item =>
+        findings.length === 0 ||
+        !findings.some(item =>
           /^\d{4}-\d{2}-\d{2}$/.test(
             String(item?.date || "")
           )
         ) ||
-        !parsed.summary ||
-        !parsed.impact ||
+        !summary ||
+        !impact ||
         grounding.sources.length === 0
       )
     ) {
-      status = "insufficient";
+      status = "manual_review";
       severity = "unknown";
+      summary =
+        summary ||
+        "已找到外部資訊，但不足以列為紅色風險。";
       notes = [
         notes,
-        "模型提出風險，但未同時通過可信度、具體證據與來源門檻，因此不顯示紅色警示。"
+        "資訊未同時通過日期、來源、可信度與本場關聯門檻，因此交由人類自行判讀。"
       ].filter(Boolean).join(" ");
     }
 
+    // 只要找到具體資訊，就不能用 clear 隱藏。
+    if (
+      status === "clear" &&
+      findings.length > 0
+    ) {
+      status = "manual_review";
+      severity = "unknown";
+      summary =
+        "已找到近期資訊，請由人類自行判讀。";
+      notes = [
+        notes,
+        "因為存在具體 findings，系統不使用無圖示 clear。"
+      ].filter(Boolean).join(" ");
+    }
+
+    // clear 必須證明確實執行過搜尋。
     if (
       status === "clear" &&
       grounding.sources.length === 0 &&
       grounding.queries.length === 0
     ) {
-      status = "insufficient";
-      severity = "unknown";
-      summary =
-        "Gemini 沒有留下 Google Search 查證紀錄，不能把本場視為已完成安全掃描。";
-      notes = [
-        notes,
-        "clear 必須至少有搜尋詞或 grounding 來源。"
-      ].filter(Boolean).join(" ");
+      throw createRiskRequestError(
+        "沒有取得可確認的搜尋紀錄。",
+        {
+          failureType: "network_timeout"
+        }
+      );
+    }
+
+    // manual_review 至少要有 findings、原始搜尋文字或來源。
+    const rawSearchText =
+      String(
+        parsed.raw_summary ||
+        answer ||
+        ""
+      ).trim().slice(0, 12000);
+
+    if (
+      status === "manual_review" &&
+      findings.length === 0 &&
+      !rawSearchText &&
+      grounding.sources.length === 0
+    ) {
+      throw createRiskRequestError(
+        "沒有取得可供人工判讀的內容。",
+        {
+          failureType: "network_timeout"
+        }
+      );
     }
 
     if (status === "clear") {
       severity = "none";
-      if (!summary) {
-        summary =
-          "本次可靠搜尋未找到與本場直接相關的明確不利資訊。";
-      }
+      summary =
+        summary ||
+        "搜尋已完成，未找到與本場直接相關的近期異常資訊。";
       impact = "";
     }
 
-    if (status === "insufficient" && !summary) {
+    if (status === "manual_review") {
+      severity = "unknown";
       summary =
-        "目前資料不足，無法可靠確認熱門方是否存在外部風險。";
+        summary ||
+        "已找到近期資訊，請由人類自行判讀。";
+      impact =
+        impact ||
+        "目前沒有足夠證據列為紅色風險，但資訊仍可能具有賽前參考價值。";
     }
 
     const match = compactRiskMatch(row);
+    const checkedAt = new Date();
+    const cacheHours =
+      RISK_RESOLVED_CACHE_HOURS;
+
     return {
       match_key: match.match_key,
       item: match.item,
-      date_time_taipei: match.date_time_taipei,
+      date_time_taipei:
+        match.date_time_taipei,
       league: match.league,
       home: match.home,
       away: match.away,
@@ -700,14 +1146,36 @@
       confidence: parsed.confidence,
       summary,
       impact,
-      evidence: parsed.evidence,
+      findings,
+      // 相容舊資料與舊卡片。
+      evidence: findings,
+      raw_search_text:
+        status === "clear"
+          ? ""
+          : rawSearchText,
       notes,
       sources: grounding.sources,
-      web_search_queries: grounding.queries,
-      checked_at: new Date().toISOString(),
+      web_search_queries:
+        grounding.queries,
+      search_completed: true,
+      failure_type: null,
+      http_status: 200,
+      retry_after_seconds: null,
+      cache_hours: cacheHours,
+      cache_until: new Date(
+        checkedAt.getTime() +
+        cacheHours * 3600000
+      ).toISOString(),
+      used_cache: false,
+      checked_at:
+        checkedAt.toISOString(),
       model,
-      retry_count: response.retryCount,
-      request_bytes: response.requestBytes
+      retry_count:
+        response.retryCount +
+        repairRetryCount,
+      request_bytes:
+        response.requestBytes +
+        repairRequestBytes
     };
   }
 
@@ -746,9 +1214,17 @@
       const oldEntry = existingMap.get(key);
 
       if (isRiskCacheFresh(oldEntry, row, nowMs)) {
-        entries.push(oldEntry);
+        const cachedEntry = {
+          ...oldEntry,
+          used_cache: true,
+          last_used_at:
+            new Date().toISOString()
+        };
+
+        entries.push(cachedEntry);
         cached += 1;
         completed += 1;
+
         if (typeof options.onProgress === "function") {
           options.onProgress({
             completed,
@@ -756,7 +1232,7 @@
             scanned,
             cached,
             row,
-            entry: oldEntry,
+            entry: cachedEntry,
             fromCache: true
           });
         }
@@ -775,6 +1251,8 @@
         entry = await scanExternalRisk(row, options);
       } catch (error) {
         const match = compactRiskMatch(row);
+        const friendly = friendlyRiskFailure(error);
+
         entry = {
           match_key: match.match_key,
           item: match.item,
@@ -784,18 +1262,30 @@
           away: match.away,
           hot_player: match.hot_player,
           rating: match.rating,
-          status: "failed",
+          status: friendly.public_status,
           severity: "unknown",
           confidence: 0,
-          summary:
-            "外部風險搜尋失敗，不能把空白視為已確認安全。",
-          impact: "",
+          summary: friendly.summary,
+          impact: friendly.impact,
           evidence: [],
-          notes: error?.message || String(error),
+          notes: friendly.notes,
+          search_completed: false,
+          failure_type:
+            friendly.failure_type,
+          http_status:
+            friendly.http_status,
+          retry_after_seconds:
+            friendly.retry_after_seconds,
+          cache_hours: 0,
+          cache_until: null,
+          used_cache: false,
+          technical_error:
+            friendly.technical_error,
           sources: [],
           web_search_queries: [],
           checked_at: new Date().toISOString(),
-          model: String(options.model || DEFAULT_MODEL),
+          model:
+            String(options.model || DEFAULT_MODEL),
           retry_count: 0,
           request_bytes: 0
         };
@@ -828,11 +1318,120 @@
         });
       }
 
+      if (entry.status === "system_error") {
+        const remainingRows =
+          eligibleRows.slice(completed);
+
+        for (const remainingRow of remainingRows) {
+          const match =
+            compactRiskMatch(remainingRow);
+          const stoppedEntry = {
+            match_key: match.match_key,
+            item: match.item,
+            date_time_taipei:
+              match.date_time_taipei,
+            league: match.league,
+            home: match.home,
+            away: match.away,
+            hot_player: match.hot_player,
+            rating: match.rating,
+            status: "system_error",
+            severity: "unknown",
+            confidence: 0,
+            summary:
+              "本場尚未檢查：整批掃描已因 API Key 或權限錯誤而停止。",
+            impact:
+              "這不是球員風險，而是系統目前無法使用 Gemini。",
+            evidence: [],
+            notes:
+              "修正 API Key 或權限後，重新分析即可再次檢查。",
+            search_completed: false,
+            failure_type: "auth_401_403",
+            http_status:
+              entry.http_status,
+            retry_after_seconds: null,
+            cache_hours: 0,
+            cache_until: null,
+            used_cache: false,
+            technical_error:
+              entry.technical_error,
+            sources: [],
+            web_search_queries: [],
+            checked_at:
+              new Date().toISOString(),
+            model:
+              String(
+                options.model || DEFAULT_MODEL
+              ),
+            retry_count: 0,
+            request_bytes: 0
+          };
+
+          entries.push(stoppedEntry);
+          scanned += 1;
+          completed += 1;
+
+          if (
+            typeof options.onEntry === "function"
+          ) {
+            await options.onEntry(
+              stoppedEntry,
+              {
+                completed,
+                total: eligibleRows.length,
+                scanned,
+                cached,
+                row: remainingRow,
+                fromCache: false
+              }
+            );
+          }
+
+          if (
+            typeof options.onProgress === "function"
+          ) {
+            options.onProgress({
+              completed,
+              total: eligibleRows.length,
+              scanned,
+              cached,
+              row: remainingRow,
+              entry: stoppedEntry,
+              fromCache: false
+            });
+          }
+        }
+
+        break;
+      }
+
       if (
-        completed < eligibleRows.length &&
-        Number(options.delayMs ?? RISK_SCAN_DELAY_MS) > 0
+        entry.failure_type === "quota_429" &&
+        completed < eligibleRows.length
       ) {
-        await sleep(Number(options.delayMs ?? RISK_SCAN_DELAY_MS));
+        const waitSeconds = Math.min(
+          120,
+          Math.max(
+            1,
+            Number(
+              entry.retry_after_seconds || 10
+            )
+          )
+        );
+        await sleep(waitSeconds * 1000);
+      } else if (
+        completed < eligibleRows.length &&
+        Number(
+          options.delayMs ??
+          RISK_SCAN_DELAY_MS
+        ) > 0
+      ) {
+        await sleep(
+          Number(
+            options.delayMs ??
+            RISK_SCAN_DELAY_MS
+          )
+        );
       }
     }
 
@@ -841,7 +1440,15 @@
       entries,
       completed,
       scanned,
-      cached
+      cached,
+      resolved:
+        entries.filter(item =>
+          isRiskResolvedStatus(item?.status)
+        ).length,
+      unresolved:
+        entries.filter(item =>
+          isRiskFailureStatus(item?.status)
+        ).length
     };
   }
 
@@ -1065,9 +1672,15 @@
     extractGrounding,
     externalRiskMatchKey,
     isExternalRiskEligible,
+    normalizeRiskStatus,
+    isRiskResolvedStatus,
+    isRiskFailureStatus,
+    riskCacheHours,
     isRiskCacheFresh,
     compactRiskMatch,
     parseRiskResponse,
+    friendlyRiskFailure,
+    repairRiskJson,
     scanExternalRisk,
     scanExternalRisks,
     ask
