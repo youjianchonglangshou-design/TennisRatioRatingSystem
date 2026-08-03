@@ -2299,3 +2299,225 @@ Information-first
 ```text
 2026-08-03（Asia/Taipei）
 ```
+
+---
+
+## Hotfix 7｜何時才顯示灰色 `↻`
+
+灰色 `↻` 僅限於系統完全沒有取得可供閱讀的內容：
+
+```text
+Gemini HTTP 429／使用量上限
+網路連線失敗
+連線逾時
+外部服務沒有回覆
+回覆中沒有任何可閱讀文字
+```
+
+以下情況不得再顯示灰色 `↻`：
+
+```text
+Gemini 有回覆文字，但沒有 Google Search 來源
+Gemini 回覆不是指定結構
+Gemini 表示未發現風險，但沒有附上來源
+系統無法確定回覆是否足以構成風險
+```
+
+只要有任何可閱讀內容：
+
+```text
+→ status = manual_review
+→ 顯示灰藍色 i
+→ 保存 raw_search_text
+→ 保存可用的 sources 與查詢紀錄
+→ 交給使用者自行判讀
+```
+
+### `clear` 的嚴格條件
+
+```text
+搜尋成功
+＋ 有 Google Search 查詢或來源紀錄
+＋ 沒有任何值得呈現的近期資訊
+```
+
+才可以：
+
+```text
+status = clear
+→ 不顯示圖示
+```
+
+Gemini 回覆「沒有風險」但沒有來源時：
+
+```text
+不視為 clear
+不視為 search_incomplete
+→ 改為 manual_review
+→ 顯示灰藍色 i
+```
+
+### 進度文字
+
+掃描時顯示：
+
+```text
+已處理 11/11
+```
+
+「已處理」只代表 11 場都已經執行過一次，不等於 11 場全部成功。
+
+掃描結束後，頁首才使用：
+
+```text
+外部風險完成
+外部風險部分完成
+外部風險系統錯誤
+```
+
+區分真正完成、需要重試與系統錯誤。
+
+---
+
+# 三個分析按鈕與 API 分工
+
+## `重新抓取＋完整分析`
+
+```text
+Arcadia matchups／markets
+→ 建立 today_matches.json
+→ 365Scores＋TennisRatio
+→ 建立 source_bundle.json
+→ Formula B／15項／5項／D值／EV／評級
+→ 建立 ratio_analysis.json
+→ 執行「分析風險」
+→ 更新 external_risk.json
+```
+
+會使用：
+
+```text
+Arcadia API
+365Scores
+TennisRatio
+Gemini／Google Search
+Cloudflare R2
+```
+
+適合比賽清單或賠率需要更新時使用。
+
+---
+
+## `只重跑目前清單`
+
+```text
+R2 today_matches.json
+→ 365Scores＋TennisRatio
+→ 重新建立 source_bundle.json
+→ 重新建立 ratio_analysis.json
+→ 執行「分析風險」
+→ 更新 external_risk.json
+```
+
+不重新抓：
+
+```text
+Arcadia matchups／markets
+```
+
+但仍會重新呼叫：
+
+```text
+365Scores
+TennisRatio
+Gemini／Google Search
+```
+
+適合比賽與賠率清單不變，但需要重新分析球員數據和評級時使用。
+
+---
+
+## `分析風險`
+
+```text
+R2 ratio_analysis.json
+→ R2 external_risk.json 六小時快取
+→ 篩選尚未過期的 A／B 熱門方
+→ Gemini／Google Search 外部資訊覆核
+→ 更新 external_risk.json
+```
+
+不會呼叫：
+
+```text
+Arcadia API
+Pinnacle 賠率抓取
+365Scores
+TennisRatio
+source_bundle 重建
+Formula B 重算
+```
+
+因此需要重新處理灰色 `↻`、更新即時外部消息，或只檢查傷病／疲勞／賽程時，不必重新抓取前面的網站資料。
+
+---
+
+## 三條管線共用同一個終點
+
+```text
+重新抓取＋完整分析
+        ┐
+只重跑目前清單
+        ├→ 分析風險
+分析風險
+        ┘
+```
+
+新的 `ratio_analysis.json` 建立後，前兩個按鈕會直接呼叫與第三個按鈕相同的共用風險分析函式。
+
+因此：
+
+```text
+風險規則只有一份
+快取判定只有一份
+external_risk.json 寫入流程只有一份
+```
+
+---
+
+## 開啟網頁時
+
+開啟或重新整理網頁只讀取 R2 既有資料：
+
+```text
+ratio_analysis.json
+today_matches.json
+source_bundle.json
+external_risk.json
+```
+
+不會自動呼叫 Gemini。
+
+只有按下以下任一按鈕才會啟動外部風險分析：
+
+```text
+重新抓取＋完整分析
+只重跑目前清單
+分析風險
+```
+
+---
+
+## 建議操作
+
+```text
+比賽清單或賠率改變
+→ 重新抓取＋完整分析
+
+清單不變，但需要更新球員數據與評級
+→ 只重跑目前清單
+
+ratio_analysis 已正確，只需要更新外部資訊
+→ 分析風險
+```
+

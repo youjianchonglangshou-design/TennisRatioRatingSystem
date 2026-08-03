@@ -399,10 +399,15 @@
       }
     }
 
+    const modeLabels = {
+      full: "重新抓取＋完整分析",
+      reanalyze: "目前清單重跑",
+      risk: "分析風險"
+    };
     const modeText =
-      state.completionNotificationMode === "full"
-        ? "重新抓取＋完整分析"
-        : "目前清單重跑";
+      modeLabels[
+        state.completionNotificationMode
+      ] || "外部風險分析";
     const cacheText = usedCache
       ? "外部風險直接沿用 R2 六小時快取。"
       : "外部風險已完成並寫入 R2。";
@@ -1379,7 +1384,7 @@
               }
 
               elements.statusText.textContent =
-                `外部風險覆核｜已完成 ` +
+                `外部風險覆核｜已處理 ` +
                 `${progress.completed}/${progress.total}` +
                 `｜熱門方 ${entry.hot_player}` +
                 `｜${riskStatusLabel(entry)}`;
@@ -1453,6 +1458,110 @@
       state.riskScanTimer = null;
       void startExternalRiskScan();
     }, delay);
+  }
+
+
+  async function runRiskAnalysisPhase({
+    reloadRatioFromR2 = false,
+    refreshTable = false
+  } = {}) {
+    cancelExternalRiskScan();
+
+    if (reloadRatioFromR2) {
+      elements.statusText.textContent =
+        "分析風險｜正在從 R2 讀取 ratio_analysis.json 與 external_risk.json……";
+
+      const [
+        analysis,
+        externalRisk,
+        today
+      ] = await Promise.all([
+        fetchLatestAnalysis(),
+        fetchLatestExternalRisk(),
+        (
+          state.today
+            ? Promise.resolve(state.today)
+            : fetchLatestTodayMatches()
+        ).catch(() => state.today || null)
+      ]);
+
+      state.analysis = analysis;
+      state.externalRisk = externalRisk;
+
+      if (today) {
+        updateTodayState(today);
+      }
+
+      if (refreshTable) {
+        renderAnalysis(
+          analysis,
+          today || state.today || {}
+        );
+      }
+    } else {
+      // 前面分析已產生新的 ratio_analysis.json。
+      // 此處只同步 R2 外部風險快取，不重新呼叫
+      // Arcadia、365Scores 或 TennisRatio。
+      const latestRisk =
+        await fetchLatestExternalRisk();
+
+      if (latestRisk) {
+        state.externalRisk = latestRisk;
+      }
+
+      updateRiskStatus();
+    }
+
+    if (
+      !state.analysis ||
+      !Array.isArray(state.analysis.matches)
+    ) {
+      throw new Error(
+        "R2 ratio_analysis.json 沒有可供風險分析的比賽資料。"
+      );
+    }
+
+    elements.statusLine.classList.remove(
+      "error"
+    );
+    elements.statusText.textContent =
+      `分析風險｜已讀取 ratio_analysis ` +
+      `${state.analysis.matches.length} 場；` +
+      `正在檢查 A／B 熱門方與 R2 六小時快取……`;
+
+    await startExternalRiskScan();
+    return state.externalRisk;
+  }
+
+  async function runRiskOnlyFromR2() {
+    setRunning(true);
+    elements.statusLine.classList.remove(
+      "error"
+    );
+
+    try {
+      configurationValue(
+        WORKER_UPLOAD_TOKEN,
+        "WORKER_UPLOAD_TOKEN"
+      );
+
+      await runRiskAnalysisPhase({
+        reloadRatioFromR2: true,
+        refreshTable: true
+      });
+    } catch (error) {
+      console.error(error);
+      elements.statusLine.classList.add(
+        "error"
+      );
+      elements.statusText.textContent =
+        `分析風險失敗：${
+          error?.message || String(error)
+        }`;
+      notifyPipelineFailure(error);
+    } finally {
+      setRunning(false);
+    }
   }
 
   function updateTodayState(today) {
@@ -1559,17 +1668,43 @@
       uploadToken,
       analysis
     );
-    const savedAnalysis = await r2Client.fetchJson(WORKER_URL, "ratio_analysis.json");
+    const savedAnalysis =
+      await r2Client.fetchJson(
+        WORKER_URL,
+        "ratio_analysis.json"
+      );
     state.analysis = savedAnalysis;
-    renderAnalysis(savedAnalysis, state.today);
-    scheduleExternalRiskScan(650);
+    renderAnalysis(
+      savedAnalysis,
+      state.today
+    );
 
-    const health = savedAnalysis.run_health || {};
-    const ratings = health.rating_counts || {};
+    const health =
+      savedAnalysis.run_health || {};
+    const ratings =
+      health.rating_counts || {};
+
     elements.statusText.textContent =
-      `Phase 4完成｜ratio_analysis ${savedAnalysis.matches?.length || 0} 場｜` +
-      `A ${ratings.A || 0}｜B ${ratings.B || 0}｜C ${ratings.C || 0}｜淘汰 ${ratings["淘汰"] || ratings["淘汰＋過期"] || 0}｜` +
-      `R2 ${uploadResult.ratioAnalysisBytes || 0} bytes`;
+      `Phase 4完成｜ratio_analysis ` +
+      `${savedAnalysis.matches?.length || 0} 場｜` +
+      `A ${ratings.A || 0}｜` +
+      `B ${ratings.B || 0}｜` +
+      `C ${ratings.C || 0}｜` +
+      `淘汰 ${
+        ratings["淘汰"] ||
+        ratings["淘汰＋過期"] ||
+        0
+      }｜R2 ${
+        uploadResult.ratioAnalysisBytes || 0
+      } bytes｜準備執行分析風險`;
+
+    // 完整分析與目前清單重跑，最後都進入
+    // 與「分析風險」按鈕相同的共用流程。
+    await runRiskAnalysisPhase({
+      reloadRatioFromR2: false,
+      refreshTable: false
+    });
+
     return savedAnalysis;
   }
 
@@ -2137,7 +2272,8 @@
       state.externalRisk = externalRisk;
       startRiskCountdownClock();
       renderAnalysis(analysis, today);
-      scheduleExternalRiskScan(800);
+      // 開啟網頁只呈現 R2 既有結果。
+      // 不自動呼叫 Gemini；由三個按鈕明確啟動。
       if (sourceBundle?.matches) {
         const health = sourceBundle.source_health || {};
         const missingSettings = [];
@@ -2158,9 +2294,16 @@
           : "";
 
         elements.statusText.textContent =
-          `Phase 4系統已就緒｜ratio_analysis ${analysis.matches?.length || 0}場｜` +
-          `source_bundle ${sourceBundle.matches.length}場｜場地 ${health.surface_resolved || 0}場｜` +
-          `雙方球員識別 ${health.both_players_found || 0}場${warning}`;
+          `Phase 4系統已就緒｜ratio_analysis ` +
+          `${analysis.matches?.length || 0}場｜` +
+          `source_bundle ${
+            sourceBundle.matches.length
+          }場｜場地 ${
+            health.surface_resolved || 0
+          }場｜雙方球員識別 ${
+            health.both_players_found || 0
+          }場｜可按「分析風險」只讀 R2 執行外部覆核` +
+          warning;
       }
     } catch (error) {
       console.error(error);
@@ -2218,16 +2361,23 @@
   document.querySelectorAll(".run-button").forEach(button => {
     button.addEventListener("click", async () => {
       try {
+        const mode =
+          String(button.dataset.mode || "");
+
         await prepareCompletionNotification(
-          button.dataset.mode === "full"
-            ? "full"
-            : "reanalyze"
+          mode
         );
 
-        if (button.dataset.mode === "full") {
+        if (mode === "full") {
           await runFullPipelinePhase4();
-        } else {
+        } else if (mode === "reanalyze") {
           await rerunCurrentListPhase4();
+        } else if (mode === "risk") {
+          await runRiskOnlyFromR2();
+        } else {
+          throw new Error(
+            `未知的執行模式：${mode}`
+          );
         }
       } catch (error) {
         // 最外層保險：任何未預期錯誤都必須顯示在畫面，
