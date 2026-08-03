@@ -81,3 +81,567 @@ table.main{width:100%;min-width:1180px;border-collapse:separate;border-spacing:0
 .overview-metric .formula-final-grade.a{color:#ffe66d;border-color:#d6a900;background:#332708;box-shadow:inset 0 1px 0 #fff3a344,0 0 7px #d6a90055;text-shadow:0 0 5px #ffe66d77}
 .overview-metric .formula-final-grade.b{color:#d8b4fe;border-color:#8b5cf6;background:#28193d;box-shadow:inset 0 1px 0 #ead7ff44,0 0 7px #8b5cf655;text-shadow:0 0 5px #d8b4fe66}
 .overview-metric .formula-final-grade.c{color:#dcf7ff;border-color:#2f9cff;background:linear-gradient(180deg,#105b91 0%,#082f66 52%,#071f49 100%);box-shadow:inset 0 1px 0 #b8efff66,inset 0 -1px 0 #001a3d,0 0 7px #238cff78;text-shadow:0 0 5px #86ddff}
+
+
+/* ============================================================
+   Phase 5 Hotfix 7：GitHub JS 版改成本機版緊湊密度
+   僅調整版面尺寸，不修改顏色、資料、分析或互動邏輯。
+   ============================================================ */
+
+/* 整體文字與頁首 */
+body{
+  font-size:10.5px;
+  line-height:1.38;
+}
+.page{
+  padding:10px 12px 14px;
+}
+.app-head{
+  gap:10px;
+  margin-bottom:7px;
+}
+.brand h1{
+  font-size:20px;
+  line-height:1.16;
+}
+.version,
+.subtitle{
+  font-size:10px;
+}
+.subtitle{
+  margin-top:3px;
+}
+.time-stack{
+  gap:5px;
+}
+.generated{
+  padding:4px 7px;
+  border-radius:6px;
+  font-size:10px;
+}
+
+/* 操作按鈕、下載按鈕、搜尋框 */
+.controls{
+  gap:5px;
+  margin-bottom:5px;
+}
+.control,
+.download{
+  height:31px;
+  padding:0 10px;
+  border-radius:6px;
+  font-size:10.5px;
+}
+.search-control{
+  flex-basis:170px;
+  width:170px;
+  min-width:125px;
+}
+
+/* 頂端評級／狀態膠囊 */
+.filter-chips{
+  gap:4px;
+}
+.filter-chip{
+  height:25px;
+  gap:4px;
+  padding:0 8px;
+  font-size:10px;
+}
+.filter-chip b{
+  min-width:15px;
+  padding:0 4px;
+  font-size:9px;
+}
+.status-line{
+  min-height:25px;
+  margin-bottom:6px;
+  padding:3px 8px;
+  font-size:10px;
+}
+.status-dot{
+  width:6px;
+  height:6px;
+}
+
+/* 主表格密度 */
+.wrap{
+  height:calc(100vh - 136px);
+  min-height:410px;
+  border-radius:10px;
+}
+table.main{
+  min-width:1080px;
+}
+.main th{
+  padding:7px 6px;
+  font-size:10px;
+}
+.main td{
+  padding:7px 6px;
+  font-size:10.5px;
+}
+.player-entry{
+  gap:7px;
+}
+.info-pill{
+  gap:4px;
+  padding:3px 6px;
+  border-radius:5px;
+}
+.copy-column,
+.copy-head{
+  width:40px;
+}
+.copy-match,
+.copy-url{
+  width:26px;
+  height:24px;
+  border-radius:5px;
+}
+.copy-icon{
+  width:15px;
+  height:15px;
+}
+.rank-pill{
+  min-width:33px;
+  height:18px;
+  margin-left:4px;
+  padding:0 5px;
+  font-size:9px;
+}
+.rank-pill.better-ranked::after{
+  right:-3px;
+  top:-3px;
+  width:5px;
+  height:5px;
+}
+.rating{
+  min-width:48px;
+  padding:3px 7px;
+  font-size:10px;
+}
+.rating-cell{
+  min-width:104px;
+}
+.rating-badges{
+  gap:5px;
+}
+.d-mini{
+  min-width:32px;
+  height:20px;
+  padding:0 6px;
+  font-size:9px;
+}
+
+/* Hover 卡片：尺寸與文字縮回本機版密度 */
+#card{
+  max-height:86vh;
+  padding:9px;
+  border-radius:9px;
+  font-size:10px;
+  line-height:1.34;
+}
+#card.match-card{
+  width:min(410px,calc(100vw - 16px)) !important;
+  max-width:calc(100vw - 16px) !important;
+}
+#card.integrated-card{
+  --stats-pane-min:360px !important;
+  width:min(1080px,calc(100vw - 16px)) !important;
+  max-width:calc(100vw - 16px) !important;
+}
+.tip-title{
+  margin-bottom:6px;
+  padding-bottom:5px;
+  font-size:14px;
+}
+.integrated-title{
+  gap:7px;
+}
+.h2h-title{
+  width:min(310px,27vw);
+  min-width:175px;
+  height:24px;
+  gap:5px;
+  padding:2px 3px 2px 7px;
+  font-size:9px;
+}
+.h2h-title .h2h-title-copy{
+  width:21px;
+  height:19px;
+}
+.h2h-title .copy-icon{
+  width:12px;
+  height:12px;
+}
+.h2h-title .copy-status{
+  max-width:34px;
+  font-size:8px;
+}
+.card-item{
+  padding:1px 7px;
+  font-size:10px;
+}
+.surface{
+  margin-bottom:6px;
+  font-size:9.5px;
+}
+.tip-table th,
+.tip-table td{
+  padding:4px 6px;
+}
+.info-list{
+  grid-template-columns:100px 1fr;
+  gap:5px 8px;
+}
+.prob-grid{
+  gap:5px;
+  margin:6px 0;
+}
+.prob-grid span{
+  padding:6px;
+}
+.prob-grid small{
+  font-size:9px;
+}
+.prob-grid b{
+  font-size:13px;
+}
+
+/* 完整分析卡片雙欄比例 */
+.analysis-grid{
+  grid-template-columns:minmax(360px,4.7fr) minmax(560px,6.3fr);
+  gap:6px;
+}
+.stats-panel{
+  min-width:360px !important;
+  border-radius:7px;
+}
+.panel-title{
+  padding:6px 8px;
+}
+.stats-tab{
+  padding:5px 9px;
+  border-radius:6px 6px 0 0;
+}
+.compare-table th,
+.compare-table td,
+.formula-table th,
+.formula-table td{
+  padding:3px 6px;
+}
+.compare-table .player-row th{
+  padding-top:4px;
+  padding-bottom:4px;
+}
+.player-record{
+  font-size:10px;
+}
+.panel-player .rank-pill{
+  height:16px;
+  min-width:31px;
+  padding:0 4px;
+  font-size:8px;
+}
+.stat-total{
+  font-size:11px;
+}
+.formula-content{
+  padding:6px;
+}
+.formula-overview{
+  margin-bottom:6px;
+  padding:6px;
+}
+.overview-grid{
+  grid-template-columns:minmax(210px,2fr) minmax(145px,1fr) minmax(110px,.82fr);
+  gap:5px;
+}
+.overview-box{
+  min-height:42px;
+  padding:5px 7px;
+  border-radius:6px;
+}
+.overview-box-head{
+  gap:5px;
+  margin-bottom:4px;
+}
+.overview-index{
+  min-width:20px;
+  height:20px;
+  padding:0 5px;
+  border-radius:5px;
+  font-size:9px;
+}
+.overview-box-label{
+  font-size:9px;
+}
+.overview-line{
+  font-size:10.5px;
+}
+.overview-metric-value{
+  min-height:20px;
+}
+.overview-metric b{
+  font-size:15px;
+}
+.overview-note{
+  margin-top:4px;
+  padding-top:4px;
+  font-size:8.5px;
+}
+.energy-summary{
+  gap:5px;
+}
+.energy-direction{
+  min-width:64px;
+  font-size:9.5px;
+}
+.energy-direction b{
+  font-size:10.5px;
+}
+.energy-track{
+  grid-template-columns:repeat(15,7px);
+  gap:2px;
+}
+.energy-dot{
+  width:7px;
+  height:7px;
+}
+.data-mix-card,
+.plain-summary{
+  margin:5px 0;
+  padding:6px 7px;
+}
+.data-mix-values{
+  gap:5px;
+  margin-top:5px;
+}
+.data-mix-values span{
+  padding:4px 6px;
+}
+.data-mix-values b{
+  font-size:12px;
+}
+.data-mix-track{
+  height:6px;
+  margin:5px 0;
+}
+.comparison-count{
+  padding:5px 6px;
+}
+.breadth-badge,
+.signal-tag{
+  padding:1px 6px;
+  font-size:9px;
+}
+.rank-calc-grid{
+  gap:5px;
+  margin:6px 0;
+}
+.rank-calc-grid span{
+  padding:5px;
+}
+.rank-calc-grid b{
+  font-size:11px;
+}
+.plain-steps{
+  margin-top:6px;
+  padding:6px 6px 6px 24px;
+}
+.rating-gates{
+  gap:5px;
+  margin:6px 0;
+  padding:5px;
+}
+.rating-gates>span{
+  padding:4px 5px;
+}
+.rating-gates>span b{
+  font-size:12px;
+}
+
+/* BO3 卡片 */
+.bo3-card{
+  margin-top:6px;
+  padding:6px;
+}
+.bo3-head{
+  padding-bottom:5px;
+}
+.bo3-head strong{
+  font-size:12px;
+}
+.bo3-head span{
+  font-size:9px;
+}
+.bo3-player{
+  min-width:165px;
+  padding:5px;
+}
+.bo3-player-name small{
+  font-size:8px;
+}
+.bo3-outcomes{
+  margin-top:5px;
+}
+.bo3-outcomes span{
+  padding:3px;
+  font-size:9px;
+}
+.bo3-outcomes b{
+  font-size:11px;
+}
+.bo3-footer span{
+  font-size:8px;
+}
+.bo3-footer b{
+  font-size:10px;
+}
+
+/* Gemini 側邊欄：430px → 350px，接近本機版 */
+.chat-drawer.open{
+  flex-basis:350px !important;
+  width:350px !important;
+}
+.chat-inner{
+  width:350px !important;
+  min-width:350px !important;
+}
+.chat-head{
+  gap:6px;
+  padding:10px 11px;
+}
+.chat-head h2{
+  font-size:15px;
+}
+.chat-head small{
+  font-size:9px;
+}
+.chat-head-actions{
+  gap:4px;
+}
+.chat-icon{
+  width:28px;
+  height:28px;
+  border-radius:6px;
+  font-size:10px;
+}
+.chat-context{
+  gap:6px;
+  padding:6px 10px;
+  font-size:9.5px;
+}
+.chat-context i{
+  width:6px;
+  height:6px;
+}
+.chat-log{
+  padding:9px;
+}
+.chat-welcome{
+  padding:14px 11px;
+  border-radius:8px;
+}
+.chat-welcome strong{
+  margin-bottom:4px;
+  font-size:14px;
+}
+.chat-message{
+  margin:7px 0;
+  padding:7px 8px;
+  border-radius:8px;
+}
+.chat-message.user{
+  margin-left:25px;
+}
+.chat-message.model{
+  margin-right:12px;
+}
+.chat-meta{
+  font-size:9px;
+}
+.chat-composer{
+  padding:8px 10px 10px;
+}
+.chat-input{
+  min-height:60px;
+  max-height:150px;
+  padding:7px 8px;
+  border-radius:7px;
+}
+.chat-actions{
+  gap:6px;
+  margin-top:6px;
+}
+.chat-actions-note{
+  font-size:8.5px;
+}
+.chat-send{
+  min-width:74px;
+}
+
+/* 模型設定視窗同步縮小 */
+.settings-dialog{
+  width:min(520px,calc(100vw - 24px));
+}
+.settings-card{
+  padding:14px 16px;
+}
+.settings-head{
+  margin-bottom:10px;
+}
+.settings-head h2{
+  font-size:18px;
+}
+.settings-field{
+  margin:9px 0;
+}
+.settings-field input,
+.settings-field textarea{
+  padding:8px 9px;
+}
+.settings-field textarea{
+  min-height:100px;
+}
+.settings-actions{
+  margin-top:12px;
+}
+
+/* 窄畫面仍保持側欄與主畫面可用 */
+@media(max-width:1100px){
+  .chat-drawer.open{
+    flex-basis:330px !important;
+    width:330px !important;
+  }
+  .chat-inner{
+    width:330px !important;
+    min-width:330px !important;
+  }
+  #card.integrated-card{
+    width:calc(100vw - 16px) !important;
+  }
+}
+@media(max-width:850px){
+  body{
+    font-size:10px;
+  }
+  .page{
+    padding:8px;
+  }
+  .brand h1{
+    font-size:18px;
+  }
+  .wrap{
+    height:calc(100vh - 184px);
+  }
+  .chat-drawer.open{
+    flex-basis:300px !important;
+    width:300px !important;
+  }
+  .chat-inner{
+    width:300px !important;
+    min-width:300px !important;
+  }
+}
