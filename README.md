@@ -2939,3 +2939,110 @@ modules/groq-client.js
 ```
 
 Cloudflare Worker 不需要修改。
+
+
+---
+
+# Groq Compound Hotfix 3｜外部風險改用 Compound Mini
+
+## 為什麼側邊欄正常，風險搜尋仍出現大量 413
+
+側邊欄問答與外部風險是兩條不同請求：
+
+```text
+側邊欄問答
+→ 問題分流後的精簡 ratio_analysis context
+
+外部風險
+→ 每位球員啟動 Groq 網頁搜尋與工具編排
+```
+
+外部風險原本使用完整：
+
+```text
+groq/compound
+```
+
+並一次要求搜尋傷病、退賽、疾病、疲勞、賽程、旅行、訓練與近期狀態。即使送出的前端 request 很小，Compound 仍可能在內部累積多次工具搜尋內容。
+
+## 新分工
+
+```text
+一般側邊欄問答
+→ groq/compound
+
+分析風險
+→ groq/compound-mini
+```
+
+`groq/compound-mini` 每次最多使用一個工具，適合逐名球員做一次近期 Web Search。
+
+## 外部風險搜尋限制
+
+```text
+只開放 web_search
+每位球員一次搜尋
+主要期間：本場前90天
+最多4項資訊
+輸出上限：1600 tokens
+```
+
+不再主動搜尋：
+
+```text
+生涯故事
+多年以前舊聞
+一般心理訪談
+與本場無關的訓練內容
+沒有來源的旅行或時差推測
+```
+
+超過180天的舊傷或慢性疾病，必須有最近90天可靠來源證實仍在影響，才能列入。
+
+## 413 自動極簡重試
+
+第一次 Compound Mini 搜尋若仍回傳 413：
+
+```text
+→ 自動改成單一極簡訊息
+→ 最多3項資訊
+→ 輸出上限900 tokens
+→ 再嘗試一次
+```
+
+只有極簡重試仍失敗，才顯示灰色 `↻`。
+
+## Worker 支援模型
+
+```text
+groq/compound
+groq/compound-mini
+```
+
+Worker 會安全轉傳：
+
+```text
+compound_custom.tools.enabled_tools
+```
+
+風險搜尋只會傳：
+
+```text
+web_search
+```
+
+## 覆蓋
+
+GitHub：
+
+```text
+index.html
+README.md
+modules/groq-client.js
+```
+
+Cloudflare：
+
+```text
+cloudflare-worker.js
+```
