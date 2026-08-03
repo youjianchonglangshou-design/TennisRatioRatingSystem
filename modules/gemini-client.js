@@ -983,26 +983,30 @@
           throw repairError;
         }
 
-        // 搜尋文字或來源已經取得，就不得把資訊丟棄。
-        if (
-          String(answer || "").trim() &&
-          (
-            grounding.sources.length > 0 ||
-            grounding.queries.length > 0
-          )
-        ) {
+        // 只要 Gemini 已經回覆任何可閱讀文字，就不得改成
+        // search_incomplete。即使沒有 grounding 來源，也要保留
+        // 回覆並交給人類自行判讀。
+        if (String(answer || "").trim()) {
+          const hasGrounding = Boolean(
+            grounding.sources.length ||
+            grounding.queries.length
+          );
+
           parsed = {
             status: "manual_review",
             severity: "unknown",
-            confidence: 0.35,
-            summary:
-              "已找到外部資訊，請由人類自行判讀。",
-            impact:
-              "系統無法可靠判定這些資訊是否足以構成明確風險，但搜尋內容已完整保留。",
+            confidence: hasGrounding ? 0.35 : 0.2,
+            summary: hasGrounding
+              ? "已找到外部資訊，請由人類自行判讀。"
+              : "Gemini 已提供近期資訊，但沒有附上可核對來源。",
+            impact: hasGrounding
+              ? "系統無法可靠判定這些資訊是否足以構成明確風險，但搜尋內容已完整保留。"
+              : "系統不會把這場列為已確認安全；回覆內容仍完整保留，請自行判斷參考價值。",
             findings: [],
             evidence: [],
-            notes:
-              "以下是 Gemini 本次搜尋整理與來源。沒有被系統判定為紅色風險，不等於資訊沒有參考價值。",
+            notes: hasGrounding
+              ? "以下保留 Gemini 本次搜尋整理與來源。沒有列為紅色風險，不等於資訊沒有參考價值。"
+              : "這次有取得 Gemini 回覆，但沒有 Google Search 來源標記，因此改列人工判讀，而不是搜尋未完成。",
             raw_summary:
               String(answer).trim().slice(0, 12000)
           };
@@ -1072,25 +1076,40 @@
       ].filter(Boolean).join(" ");
     }
 
-    // clear 必須證明確實執行過搜尋。
+    // Gemini 不一定每次都真正啟用 Google Search 工具。
+    // 若它有回覆 clear，但沒有 grounding 來源，不能標成
+    // 「已確認安全」，也不能誤判成搜尋失敗；改成人工判讀，
+    // 並把回覆文字完整保留。
     if (
       status === "clear" &&
       grounding.sources.length === 0 &&
       grounding.queries.length === 0
     ) {
-      throw createRiskRequestError(
-        "沒有取得可確認的搜尋紀錄。",
-        {
-          failureType: "network_timeout"
-        }
-      );
+      status = "manual_review";
+      severity = "unknown";
+      summary =
+        "Gemini 回覆未發現明確風險，但沒有附上可核對來源。";
+      impact =
+        "這場不能列為已確認安全；請閱讀 Gemini 回覆後自行判斷。";
+      notes = [
+        notes,
+        "本次沒有 Google Search 來源標記，因此顯示灰藍色 i，而不是無圖示或灰色 ↻。"
+      ].filter(Boolean).join(" ");
     }
 
     // manual_review 至少要有 findings、原始搜尋文字或來源。
     const rawSearchText =
       String(
         parsed.raw_summary ||
-        answer ||
+        (
+          status === "manual_review"
+            ? (
+                parsed.summary ||
+                parsed.notes ||
+                answer
+              )
+            : answer
+        ) ||
         ""
       ).trim().slice(0, 12000);
 
