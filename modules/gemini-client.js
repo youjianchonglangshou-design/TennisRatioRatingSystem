@@ -1,7 +1,7 @@
 ((global) => {
   "use strict";
 
-  const DEFAULT_MODEL = "gemini-2.5-flash";
+  const DEFAULT_MODEL = "auto";
   const DEFAULT_WORKER_PATH = "/gemini";
   const MAX_HISTORY_MESSAGES = 6;
   const MAX_SELECTED_MATCHES = 4;
@@ -785,6 +785,8 @@
     const requestBytes =
       new TextEncoder().encode(encodedText).byteLength;
     let responsePayload = null;
+    let actualModel =
+      String(proxyPayload?.model || DEFAULT_MODEL);
     let retryCount = 0;
 
     for (
@@ -812,7 +814,13 @@
         });
 
         if (response.ok) {
-          responsePayload = await response.json();
+          actualModel =
+            response.headers.get(
+              "X-TennisRatio-Gemini-Model"
+            ) ||
+            actualModel;
+          responsePayload =
+            await response.json();
           break;
         }
 
@@ -913,6 +921,7 @@
 
     return {
       payload: responsePayload,
+      actualModel,
       retryCount,
       requestBytes
     };
@@ -1287,7 +1296,9 @@
       used_cache: false,
       checked_at:
         checkedAt.toISOString(),
-      model,
+      model:
+        response.actualModel || model,
+      requested_model: model,
       retry_count:
         response.retryCount +
         repairRetryCount,
@@ -1616,7 +1627,11 @@
   function generationConfigForModel(model) {
     const config = { maxOutputTokens: 4096 };
     // Gemini 3.x 新模型不接受舊式 sampling 參數；2.5 維持原本 temperature=0。
-    if (!/^gemini-3(?:\.|-|$)/i.test(model)) {
+    if (
+      !/^(?:auto|gemini-3(?:\.|-|$))/i.test(
+        model
+      )
+    ) {
       config.temperature = 0.0;
     }
     return config;
@@ -1709,6 +1724,7 @@
     }
 
     let responsePayload = null;
+    let actualModel = model;
     let retryCount = 0;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
       const controller = new AbortController();
@@ -1727,7 +1743,13 @@
           cache: "no-store"
         });
         if (response.ok) {
-          responsePayload = await response.json();
+          actualModel =
+            response.headers.get(
+              "X-TennisRatio-Gemini-Model"
+            ) ||
+            model;
+          responsePayload =
+            await response.json();
           break;
         }
         const detail = await readErrorDetail(response);
@@ -1766,7 +1788,8 @@
     const grounding = extractGrounding(responsePayload);
     return {
       answer,
-      model,
+      model: actualModel,
+      requested_model: model,
       usage: responsePayload.usageMetadata || {},
       context_revision: Number(options.revision || 0),
       context_mode: context.context_mode,
