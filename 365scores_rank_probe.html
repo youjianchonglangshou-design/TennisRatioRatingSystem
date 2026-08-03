@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>365Scores 排名 API 檢查</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#07111f;
+  --panel:#0e1b2d;
+  --line:#2a405d;
+  --text:#edf6ff;
+  --muted:#91abc8;
+  --accent:#58bfff;
+  --ok:#3dde8f;
+  --bad:#ff6f7f;
+  --warn:#ffd166;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:"Microsoft JhengHei",Arial,sans-serif;
+}
+main{
+  width:min(1050px,calc(100% - 28px));
+  margin:28px auto;
+}
+.panel{
+  margin-bottom:14px;
+  padding:22px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--panel);
+}
+h1,h2{margin-top:0}
+p{color:var(--muted);line-height:1.65}
+.grid{
+  display:grid;
+  grid-template-columns:1fr 220px;
+  gap:12px;
+}
+label span{
+  display:block;
+  margin-bottom:7px;
+  color:var(--muted);
+  font-size:13px;
+}
+input,button{
+  font:inherit;
+}
+input{
+  width:100%;
+  min-height:44px;
+  padding:0 12px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#081524;
+  color:var(--text);
+}
+.actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:15px;
+}
+button{
+  min-height:42px;
+  padding:0 16px;
+  border:1px solid #396286;
+  border-radius:9px;
+  background:#10243c;
+  color:var(--text);
+  cursor:pointer;
+}
+button:hover{border-color:var(--accent)}
+button:disabled{opacity:.55;cursor:wait}
+.status{
+  font-weight:800;
+}
+.status.ok{color:var(--ok)}
+.status.bad{color:var(--bad)}
+.status.running{color:var(--accent)}
+.summary{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin:14px 0;
+}
+.summary article{
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#0a1727;
+}
+.summary span{
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+}
+.summary strong{
+  display:block;
+  margin-top:6px;
+  font-size:20px;
+}
+pre{
+  min-height:320px;
+  max-height:62vh;
+  overflow:auto;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#050d18;
+  color:#dceeff;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  font:12px/1.6 Consolas,"Courier New",monospace;
+}
+.good{color:var(--ok)}
+.warning{color:var(--warn)}
+@media(max-width:720px){
+  .grid,.summary{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h1>365Scores 排名 API 檢查</h1>
+    <p>
+      此頁只讀取你目前的 Cloudflare Worker，不會修改 R2。
+      它會檢查日清單與最多 5 場比賽明細，搜尋排名相關欄位。
+    </p>
+
+    <div class="grid">
+      <label>
+        <span>Worker URL</span>
+        <input id="worker" value="https://tennis-json-store.youjianchonglangshou.workers.dev">
+      </label>
+      <label>
+        <span>日期（台灣）</span>
+        <input id="date" type="date">
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="run" type="button">檢查排名欄位</button>
+      <button id="download" type="button" disabled>下載檢查報告</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div id="status" class="status">待命</div>
+
+    <div class="summary">
+      <article><span>日清單比賽</span><strong id="games">—</strong></article>
+      <article><span>日清單排名欄位</span><strong id="dayHits">—</strong></article>
+      <article><span>明細成功</span><strong id="detailOk">—</strong></article>
+      <article><span>明細排名欄位</span><strong id="detailHits">—</strong></article>
+    </div>
+
+    <pre id="output">按「檢查排名欄位」開始。</pre>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const elements = {
+    worker: document.getElementById("worker"),
+    date: document.getElementById("date"),
+    run: document.getElementById("run"),
+    download: document.getElementById("download"),
+    status: document.getElementById("status"),
+    games: document.getElementById("games"),
+    dayHits: document.getElementById("dayHits"),
+    detailOk: document.getElementById("detailOk"),
+    detailHits: document.getElementById("detailHits"),
+    output: document.getElementById("output")
+  };
+
+  let latestReport = null;
+
+  function taipeiDate() {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Taipei",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      })
+      .formatToParts(new Date())
+      .filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value])
+    );
+
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+
+  elements.date.value = taipeiDate();
+
+  function baseUrl() {
+    return elements.worker.value.trim().replace(/\/+$/, "");
+  }
+
+  function isRankKey(key) {
+    return /(rank|ranking|position|seed|standing|world.?rank|tour.?rank)/i.test(
+      String(key || "")
+    );
+  }
+
+  function collectRankFields(value, path = "$", results = [], seen = new WeakSet()) {
+    if (!value || typeof value !== "object") return results;
+    if (seen.has(value)) return results;
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        collectRankFields(item, `${path}[${index}]`, results, seen);
+      });
+      return results;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      const childPath = `${path}.${key}`;
+
+      if (isRankKey(key)) {
+        results.push({
+          path: childPath,
+          key,
+          value: child
+        });
+      }
+
+      if (child && typeof child === "object") {
+        collectRankFields(child, childPath, results, seen);
+      }
+    }
+
+    return results;
+  }
+
+  function compactCompetitor(competitor) {
+    if (!competitor || typeof competitor !== "object") return null;
+
+    return {
+      id: competitor.id ?? null,
+      name: competitor.name ?? null,
+      shortName: competitor.shortName ?? null,
+      raw: competitor
+    };
+  }
+
+  async function fetchJson(url) {
+    const response = await fetch(url, { cache: "no-store" });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}\n${text}`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`回傳內容不是 JSON：\n${text.slice(0, 500)}`);
+    }
+  }
+
+  function detailUrl(game) {
+    const home = game?.homeCompetitor || {};
+    const away = game?.awayCompetitor || {};
+
+    if (
+      game?.id == null ||
+      game?.competitionId == null ||
+      home?.id == null ||
+      away?.id == null
+    ) {
+      return null;
+    }
+
+    const matchupId =
+      `${away.id}-${home.id}-${game.competitionId}`;
+
+    return (
+      `${baseUrl()}/source/365/game` +
+      `?gameId=${encodeURIComponent(game.id)}` +
+      `&matchupId=${encodeURIComponent(matchupId)}` +
+      `&v=${Date.now()}`
+    );
+  }
+
+  function uniqueRankHits(hits) {
+    const seen = new Set();
+
+    return hits.filter(item => {
+      const signature =
+        `${item.path}|${JSON.stringify(item.value)}`;
+
+      if (seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    });
+  }
+
+  async function run() {
+    elements.run.disabled = true;
+    elements.download.disabled = true;
+    elements.status.className = "status running";
+    elements.status.textContent = "正在讀取 365Scores API……";
+    elements.output.textContent = "";
+
+    try {
+      const date = elements.date.value;
+      const dayUrl =
+        `${baseUrl()}/source/365/day` +
+        `?date=${encodeURIComponent(date)}` +
+        `&v=${Date.now()}`;
+
+      const dayPayload = await fetchJson(dayUrl);
+      const games = Array.isArray(dayPayload?.games)
+        ? dayPayload.games
+        : [];
+
+      const dayHits = uniqueRankHits(
+        collectRankFields(dayPayload)
+      );
+
+      const detailReports = [];
+      const candidates = games
+        .filter(game => detailUrl(game))
+        .slice(0, 5);
+
+      for (const game of candidates) {
+        const url = detailUrl(game);
+
+        try {
+          const payload = await fetchJson(url);
+          const hits = uniqueRankHits(
+            collectRankFields(payload)
+          );
+
+          detailReports.push({
+            ok: true,
+            gameId: game.id,
+            matchup:
+              `${game?.homeCompetitor?.name || "?"}` +
+              ` vs ${game?.awayCompetitor?.name || "?"}`,
+            url,
+            rankFields: hits,
+            dayHomeCompetitor:
+              compactCompetitor(game.homeCompetitor),
+            dayAwayCompetitor:
+              compactCompetitor(game.awayCompetitor),
+            detailSample: payload
+          });
+        } catch (error) {
+          detailReports.push({
+            ok: false,
+            gameId: game.id,
+            matchup:
+              `${game?.homeCompetitor?.name || "?"}` +
+              ` vs ${game?.awayCompetitor?.name || "?"}`,
+            url,
+            error: error.message
+          });
+        }
+      }
+
+      const allDetailHits = detailReports
+        .filter(item => item.ok)
+        .flatMap(item => item.rankFields);
+
+      const report = {
+        generatedAt: new Date().toISOString(),
+        workerUrl: baseUrl(),
+        date,
+        conclusion:
+          dayHits.length || allDetailHits.length
+            ? "API 回傳中找到排名相關欄位。"
+            : "目前檢查的日清單與比賽明細沒有找到排名相關欄位。",
+        day: {
+          url: dayUrl,
+          gameCount: games.length,
+          rankFieldCount: dayHits.length,
+          rankFields: dayHits,
+          firstGameCompetitors: games[0]
+            ? {
+                home: compactCompetitor(
+                  games[0].homeCompetitor
+                ),
+                away: compactCompetitor(
+                  games[0].awayCompetitor
+                )
+              }
+            : null
+        },
+        details: detailReports.map(item => {
+          if (!item.ok) return item;
+
+          return {
+            ok: true,
+            gameId: item.gameId,
+            matchup: item.matchup,
+            url: item.url,
+            rankFieldCount: item.rankFields.length,
+            rankFields: item.rankFields,
+            dayHomeCompetitor: item.dayHomeCompetitor,
+            dayAwayCompetitor: item.dayAwayCompetitor
+          };
+        })
+      };
+
+      latestReport = report;
+
+      elements.games.textContent = games.length;
+      elements.dayHits.textContent = dayHits.length;
+      elements.detailOk.textContent =
+        detailReports.filter(item => item.ok).length;
+      elements.detailHits.textContent =
+        allDetailHits.length;
+
+      elements.status.className =
+        dayHits.length || allDetailHits.length
+          ? "status ok"
+          : "status bad";
+
+      elements.status.textContent =
+        dayHits.length || allDetailHits.length
+          ? "PASS：365 API 找到排名相關欄位"
+          : "未確認：目前 API 回傳未找到排名欄位";
+
+      elements.output.textContent =
+        JSON.stringify(report, null, 2);
+
+      elements.download.disabled = false;
+    } catch (error) {
+      latestReport = null;
+      elements.status.className = "status bad";
+      elements.status.textContent = "FAIL：API 讀取失敗";
+      elements.output.textContent =
+        error.stack || String(error);
+    } finally {
+      elements.run.disabled = false;
+    }
+  }
+
+  function downloadReport() {
+    if (!latestReport) return;
+
+    const blob = new Blob(
+      [JSON.stringify(latestReport, null, 2)],
+      { type: "application/json;charset=utf-8" }
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "365scores_rank_probe.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  elements.run.addEventListener("click", run);
+  elements.download.addEventListener(
+    "click",
+    downloadReport
+  );
+})();
+</script>
+</body>
+</html>
