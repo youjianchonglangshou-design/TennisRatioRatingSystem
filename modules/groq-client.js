@@ -2,6 +2,9 @@
   "use strict";
 
   const DEFAULT_MODEL = "groq/compound";
+  const RISK_MODEL = "groq/compound-mini";
+  const RISK_MAX_COMPLETION_TOKENS = 1600;
+  const RISK_MINIMAL_COMPLETION_TOKENS = 900;
   const DEFAULT_WORKER_PATH = "/groq";
   const MAX_HISTORY_MESSAGES = 4;
   const MAX_HISTORY_CHARS = 1200;
@@ -1005,7 +1008,7 @@
         );
 
     const findings = rawFindings
-      .slice(0, 12)
+      .slice(0, 5)
       .map(item => ({
         date:
           String(item?.date || "").trim() || null,
@@ -1076,6 +1079,7 @@
       failureType = "network_timeout",
       httpStatus = null,
       retryAfterSeconds = null,
+      requestBytes = 0,
       cause = null
     } = {}
   ) {
@@ -1083,6 +1087,8 @@
     error.failureType = failureType;
     error.httpStatus = httpStatus;
     error.retryAfterSeconds = retryAfterSeconds;
+    error.requestBytes =
+      Number(requestBytes) || 0;
     error.cause = cause;
     return error;
   }
@@ -1105,6 +1111,13 @@
         lower.includes("forbidden")
       ) {
         failureType = "auth_401_403";
+      } else if (
+        lower.includes("413") ||
+        lower.includes(
+          "request entity too large"
+        )
+      ) {
+        failureType = "request_413";
       } else if (
         lower.includes("429") ||
         lower.includes("quota") ||
@@ -1134,6 +1147,23 @@
           "請檢查 Cloudflare Worker 的 GROQ_API_KEY、UPLOAD_TOKEN 與權限設定。",
         http_status:
           Number(error?.httpStatus) || null,
+        retry_after_seconds: null,
+        technical_error: technicalError
+      };
+    }
+
+    if (failureType === "request_413") {
+      return {
+        public_status: "search_incomplete",
+        failure_type: "request_413",
+        summary:
+          "本場的 Groq 網頁搜尋內容在服務內部膨脹，精簡重試後仍未完成。",
+        impact:
+          "這不是球員風險，也不是 ratio_analysis 資料過大；只是這次外部搜尋沒有完成。",
+        notes:
+          "系統已改用 Compound Mini 單次搜尋。灰色 ↻ 代表下次按「分析風險」會再試。",
+        http_status:
+          Number(error?.httpStatus) || 413,
         retry_after_seconds: null,
         technical_error: technicalError
       };
@@ -1193,7 +1223,7 @@
     rawAnswer,
     options = {}
   ) {
-    const model = DEFAULT_MODEL;
+    const model = RISK_MODEL;
 
     const repairPayload = {
       messages: [
@@ -1214,7 +1244,8 @@
       ],
       response_format: {
         type: "json_object"
-      }
+      },
+      max_completion_tokens: 900
     };
 
     const response =
@@ -1237,27 +1268,104 @@
     };
   }
 
-  function buildRiskSystemText(row) {
+  function buildRiskSystemText(
+    row,
+    {
+      minimal = false
+    } = {}
+  ) {
     const match = compactRiskMatch(row);
+    const player =
+      String(match.hot_player || "");
+    const matchDate =
+      String(match.date_time_taipei || "");
+    const opponent =
+      match.hot_side === "主場"
+        ? match.away
+        : match.home;
+
+    if (minimal) {
+      return (
+        "使用一次 Web Search，查網球選手 " +
+        `${player} 在本場 ${matchDate} 對 ${opponent} 前90天內，` +
+        "是否有傷病、退賽、疾病、醫療暫停、上一場超長比賽、短休或官方狀態消息。" +
+        "最多保留3項。不得推測旅行疲勞，不得把多年以前舊病直接當成本場風險。" +
+        "只輸出JSON：" +
+        '{"status":"risk_found|clear|manual_review","severity":"high|medium|none|unknown",' +
+        '"confidence":0到1,"summary":"結論","impact":"本場可能影響",' +
+        '"findings":[{"date":"YYYY-MM-DD或null","category":"injury|illness|retirement|fatigue|schedule|official_status|form|other",' +
+        '"title":"事件","fact":"來源支持的事實","relevance":"與本場關係","direction":"negative|neutral|positive"}],' +
+        '"notes":"限制","raw_summary":"簡短整理"}'
+      );
+    }
 
     return (
-      "你是 TennisRatio 的賽前外部資訊搜尋與風險覆核代理，使用 Groq Compound 內建 Web Search。全程使用繁體中文。" +
-      "\n你的工作分成兩層：第一層整理搜尋到的所有近期資訊；第二層才判斷是否構成明確風險。" +
-      "\n不可因為無法判斷風險，就刪除、隱藏或省略已找到的資訊。" +
-      "\n必查：近期傷病、傷退、退賽、疾病、醫療暫停、體能、上一場耗時、短休連戰、密集賽程、旅行、訓練、官方或選手本人發言、近期狀態。" +
-      "\nfindings 必須保存所有具體且與該球員近期狀況有關的資訊，即使它是中性、正面、與風險沒有直接關係，仍要留下供人類自行判讀。" +
-      "\n狀態只允許三種：" +
-      "\n1. risk_found：找到有日期、有可靠來源、與本場直接相關的明確不利資訊。" +
-      "\n2. clear：搜尋成功，而且沒有找到任何值得呈現的近期異常或狀態資訊；findings 應為空。" +
-      "\n3. manual_review：找到具體近期資訊，但不足以確定是明確風險，或正反資訊混合；必須完整保留 findings。" +
-      "\n很久以前的舊傷、球迷猜測、無日期說法不能直接判定 risk_found，但若搜尋到且可能有參考價值，可放入 manual_review 並清楚標示限制。" +
-      "\n若有任何具體 findings，卻不能確定為 risk_found，優先使用 manual_review，不要使用 clear。" +
-      "\n只輸出一個 JSON 物件，不要 Markdown、不要程式碼圍欄、不要額外文字。" +
-      '\nJSON格式：{"status":"risk_found|clear|manual_review","severity":"high|medium|none|unknown","confidence":0到1,"summary":"一句話結論","impact":"為何可能影響本場，沒有則留空","findings":[{"date":"YYYY-MM-DD或null","category":"injury|illness|retirement|fatigue|schedule|travel|official_status|training|form|neutral|other","title":"簡短標題","fact":"搜尋到的具體資訊","relevance":"與本場的可能關係","direction":"negative|neutral|positive"}],"notes":"限制或補充","raw_summary":"將搜尋結果整理成可閱讀摘要"}' +
-      `\n目前台灣時間：${taipeiTimeText()}` +
-      "\n【本場資料】\n" +
+      "你是 TennisRatio 的賽前外部消息覆核員。使用 Groq Compound Mini，僅做一次 Web Search。" +
+      `\n目標球員：${player}` +
+      `\n本場：${matchDate}｜${match.league || ""}｜對手 ${opponent || ""}` +
+      "\n只查本場前90天內的：傷病、退賽、疾病、醫療暫停、上一場耗時過長、短休連戰、官方狀態與明確近期低迷原因。" +
+      "\n最多保留4項最有用資訊。不要搜尋生涯故事、一般心理訪談、沒有日期的傳聞或與本場無關的舊聞。" +
+      "\n超過180天的舊傷或慢性疾病，除非90天內可靠來源明確證實仍在影響，否則不得列為風險。" +
+      "\n不得僅因比賽位於不同國家就自行推測旅行或時差風險。" +
+      "\n每項 fact 必須是來源直接支持的事實；推論只能寫在 relevance。" +
+      "\n若有具體資訊但風險不明，status=manual_review；搜尋完成且沒有近期異常才可 clear。" +
+      "\n只輸出一個JSON物件，不要Markdown。" +
+      '\n格式：{"status":"risk_found|clear|manual_review","severity":"high|medium|none|unknown","confidence":0到1,' +
+      '"summary":"一句話結論","impact":"與本場的可能影響",' +
+      '"findings":[{"date":"YYYY-MM-DD或null","category":"injury|illness|retirement|fatigue|schedule|official_status|form|other",' +
+      '"title":"簡短事件","fact":"來源支持的事實","relevance":"與本場關係","direction":"negative|neutral|positive"}],' +
+      '"notes":"資料限制","raw_summary":"可閱讀摘要"}' +
+      `\n台灣時間：${taipeiTimeText()}` +
+      "\n比賽資料：" +
       JSON.stringify(match)
     );
+  }
+
+  function buildRiskRequestPayload(
+    row,
+    {
+      minimal = false
+    } = {}
+  ) {
+    const messages = minimal
+      ? [{
+          role: "user",
+          content:
+            buildRiskSystemText(
+              row,
+              { minimal: true }
+            )
+        }]
+      : [
+          {
+            role: "system",
+            content:
+              buildRiskSystemText(row)
+          },
+          {
+            role: "user",
+            content:
+              "請執行一次近期網頁搜尋並依格式回覆。"
+          }
+        ];
+
+    return {
+      messages,
+      response_format: {
+        type: "json_object"
+      },
+      max_completion_tokens:
+        minimal
+          ? RISK_MINIMAL_COMPLETION_TOKENS
+          : RISK_MAX_COMPLETION_TOKENS,
+      compound_custom: {
+        tools: {
+          enabled_tools: [
+            "web_search"
+          ]
+        }
+      }
+    };
   }
 
   async function postRiskProxy(
@@ -1403,7 +1511,20 @@
               failureType:
                 "auth_401_403",
               httpStatus:
-                response.status
+                response.status,
+              requestBytes
+            }
+          );
+        }
+
+        if (response.status === 413) {
+          throw createRiskRequestError(
+            `Groq Worker錯誤 HTTP 413：${detail}`,
+            {
+              failureType:
+                "request_413",
+              httpStatus: 413,
+              requestBytes
             }
           );
         }
@@ -1420,7 +1541,8 @@
                   response,
                   detail,
                   attempt
-                )
+                ),
+              requestBytes
             }
           );
         }
@@ -1431,7 +1553,8 @@
             failureType:
               "network_timeout",
             httpStatus:
-              response.status
+              response.status,
+            requestBytes
           }
         );
       } catch (error) {
@@ -1611,34 +1734,48 @@
       );
     }
 
-    const model = DEFAULT_MODEL;
+    const model = RISK_MODEL;
+    let response;
+    let searchMode =
+      "compound_mini_single_search";
 
-    const requestPayload = {
-      messages: [
-        {
-          role: "system",
-          content:
-            buildRiskSystemText(row)
-        },
-        {
-          role: "user",
-          content:
-            "請使用 Groq Compound 內建 Web Search 搜尋本場熱門方，完整保留所有近期資訊，再依規則輸出 JSON。"
-        }
-      ],
-      response_format: {
-        type: "json_object"
+    try {
+      response =
+        await postRiskProxy(
+          {
+            model,
+            request:
+              buildRiskRequestPayload(
+                row
+              )
+          },
+          options
+        );
+    } catch (error) {
+      if (
+        error?.failureType !==
+          "request_413" &&
+        Number(error?.httpStatus) !== 413
+      ) {
+        throw error;
       }
-    };
 
-    const response =
-      await postRiskProxy(
-        {
-          model,
-          request: requestPayload
-        },
-        options
-      );
+      searchMode =
+        "compound_mini_minimal_retry";
+
+      response =
+        await postRiskProxy(
+          {
+            model,
+            request:
+              buildRiskRequestPayload(
+                row,
+                { minimal: true }
+              )
+          },
+          options
+        );
+    }
 
     const answer =
       extractText(response.payload);
@@ -1879,6 +2016,7 @@
       model:
         response.actualModel || model,
       requested_model: model,
+      search_mode: searchMode,
       retry_count:
         response.retryCount +
         repairRetryCount,
@@ -1993,10 +2131,16 @@
           sources: [],
           web_search_queries: [],
           checked_at: new Date().toISOString(),
-          model:
-            String(options.model || DEFAULT_MODEL),
+          model: RISK_MODEL,
+          requested_model: RISK_MODEL,
+          search_mode:
+            friendly.failure_type ===
+              "request_413"
+              ? "compact_retry_failed"
+              : "compound_mini_single_search",
           retry_count: 0,
-          request_bytes: 0
+          request_bytes:
+            Number(error?.requestBytes) || 0
         };
       }
 
