@@ -930,6 +930,157 @@
     parent.appendChild(node);
   }
 
+
+  function stripRiskCodeWrapper(value) {
+    let text = String(value || "").trim();
+
+    text = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    if (/^json\s*[\r\n]+/i.test(text)) {
+      text = text.replace(/^json\s*[\r\n]+/i, "");
+    }
+
+    return text.trim();
+  }
+
+  function parseEmbeddedRiskJson(value) {
+    const text = stripRiskCodeWrapper(value);
+    if (!text) return null;
+
+    const candidates = [text];
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
+
+    if (
+      firstBrace >= 0 &&
+      lastBrace > firstBrace
+    ) {
+      candidates.push(
+        text.slice(firstBrace, lastBrace + 1)
+      );
+    }
+
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
+          return parsed;
+        }
+      } catch {
+        // Continue with the next candidate.
+      }
+    }
+
+    return null;
+  }
+
+  function readableRiskSearchText(value) {
+    const original =
+      stripRiskCodeWrapper(value);
+    if (!original) return "";
+
+    const parsed =
+      parseEmbeddedRiskJson(original);
+
+    if (!parsed) {
+      return original
+        .replace(/^\s*["']?(status|severity|confidence)["']?\s*:\s*.+$/gim, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    const lines = [];
+    const findings = Array.isArray(
+      parsed.findings
+    )
+      ? parsed.findings
+      : (
+          Array.isArray(parsed.evidence)
+            ? parsed.evidence
+            : []
+        );
+
+    if (findings.length) {
+      findings.forEach((finding, index) => {
+        const date =
+          String(finding?.date || "").trim() ||
+          "日期未明";
+        const title =
+          String(
+            finding?.title ||
+            finding?.fact ||
+            "近期資訊"
+          ).trim();
+        const fact =
+          String(finding?.fact || "").trim();
+        const relevance =
+          String(
+            finding?.relevance ||
+            finding?.possible_relevance ||
+            ""
+          ).trim();
+
+        lines.push(
+          `${index + 1}. ${date}｜${title}`
+        );
+
+        if (
+          fact &&
+          fact !== title
+        ) {
+          lines.push(`   ${fact}`);
+        }
+
+        if (relevance) {
+          lines.push(
+            `   與本場可能關係：${relevance}`
+          );
+        }
+      });
+    }
+
+    if (!lines.length && parsed.summary) {
+      lines.push(
+        String(parsed.summary).trim()
+      );
+    }
+
+    if (parsed.impact) {
+      lines.push(
+        `與本場可能關係：${
+          String(parsed.impact).trim()
+        }`
+      );
+    }
+
+    if (parsed.notes) {
+      lines.push(
+        `補充：${String(parsed.notes).trim()}`
+      );
+    }
+
+    if (
+      !lines.length &&
+      parsed.raw_summary
+    ) {
+      lines.push(
+        String(parsed.raw_summary).trim()
+      );
+    }
+
+    return lines
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
   function openRiskDialog(entry) {
     const status =
       geminiClient.normalizeRiskStatus(
@@ -1091,7 +1242,7 @@
       const title =
         document.createElement("h3");
       title.textContent =
-        "Gemini 搜尋整理";
+        "搜尋資訊整理";
       section.appendChild(title);
 
       const raw =
@@ -1099,7 +1250,9 @@
       raw.className =
         "risk-raw-search";
       raw.textContent =
-        String(entry.raw_search_text);
+        readableRiskSearchText(
+          entry.raw_search_text
+        );
       section.appendChild(raw);
       body.appendChild(section);
     }

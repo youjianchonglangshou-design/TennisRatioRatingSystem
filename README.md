@@ -2521,3 +2521,134 @@ ratio_analysis 已正確，只需要更新外部資訊
 → 分析風險
 ```
 
+---
+
+# Hotfix 9｜Gemini 五組 Key 輪替與搜尋資訊清理
+
+## Cloudflare Worker Gemini Key 池
+
+Worker 支援以下五個 Secret：
+
+```text
+GEMINI_API_KEY
+GEMINI_API_KEY_2
+GEMINI_API_KEY_3
+GEMINI_API_KEY_4
+GEMINI_API_KEY_5
+```
+
+原本的 Key 繼續放在：
+
+```text
+GEMINI_API_KEY
+```
+
+另外四組依序放在：
+
+```text
+GEMINI_API_KEY_2
+GEMINI_API_KEY_3
+GEMINI_API_KEY_4
+GEMINI_API_KEY_5
+```
+
+API Key 不可寫入 GitHub、app.js 或 README，只能儲存在 Cloudflare Worker 的 Secrets。
+
+## 輪替規則
+
+```text
+目前 Key 成功
+→ 繼續使用目前 Key
+
+目前 Key 回傳 429／RESOURCE_EXHAUSTED
+→ 記錄等待時間
+→ 立即改用下一把 Key
+
+目前 Key 回傳 401／403／API_KEY_INVALID
+→ 暫停該 Key 一小時
+→ 改用下一把 Key
+
+所有 Key 都失敗
+→ 才把最後錯誤回傳前端
+→ 顯示灰色 ↻ 或頁首系統錯誤
+```
+
+Worker 回應會額外提供除錯 Header：
+
+```text
+X-TennisRatio-Gemini-Key-Pool
+X-TennisRatio-Gemini-Key-Slot
+X-TennisRatio-Gemini-Key-Attempts
+X-TennisRatio-Gemini-Key-Rotated
+```
+
+這些 Header 只顯示使用第幾個槽位，不會洩露 API Key。
+
+## Google Cloud 專案限制
+
+Gemini 額度是依 Google Cloud 專案計算，不是依單一 API Key 計算。
+
+因此：
+
+```text
+五把 Key 都屬於同一個 Google Cloud 專案
+→ 共享同一份額度
+→ 第一把 429 時，其他四把通常也會 429
+```
+
+要讓輪替真正增加可用額度：
+
+```text
+每把 Key 應來自不同 Google Cloud 專案
+```
+
+## 外部資訊卡顯示規則
+
+舊版 R2 資料可能在 `raw_search_text` 保存整段 JSON，例如：
+
+```text
+status
+severity
+confidence
+summary
+impact
+findings
+```
+
+畫面不再直接顯示這些欄位名稱、大括號、引號與逗號。
+
+新版會轉換成：
+
+```text
+1. 2026-08-02｜近期健康或賽程資訊
+   事件內容
+   與本場可能關係：……
+
+2. 2026-07-30｜上一場比賽資訊
+   事件內容
+```
+
+保留：
+
+```text
+日期
+事件
+事實
+與本場的可能關係
+補充說明
+```
+
+移除：
+
+```text
+JSON 大括號
+status
+severity
+confidence
+欄位名稱
+引號與程式碼格式
+```
+
+舊的 `external_risk.json` 不需要重建，前端讀取時會自動清理。
+新產生的 `raw_search_text` 也會直接保存成人類可讀文字。
+
