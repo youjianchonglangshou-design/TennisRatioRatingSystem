@@ -20,6 +20,95 @@
     "Round of 32", "Round of 16", "First Round", "Second Round", "Third Round"
   ];
   const requestCache = new Map();
+  const REQUEST_MIN_INTERVAL_MS = 450;
+  const RATE_LIMIT_BACKOFF_MS = [10000, 25000, 60000];
+  let requestSerial = Promise.resolve();
+  let lastRequestAt = 0;
+  let cooldownUntil = 0;
+
+  function sleep(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+  }
+
+  function stableRequestUrl(value) {
+    const url = new URL(String(value || ""));
+    url.searchParams.delete("v");
+    return url.toString();
+  }
+
+  function queueRequest(task) {
+    const current = requestSerial
+      .catch(() => undefined)
+      .then(task);
+    requestSerial = current.catch(() => undefined);
+    return current;
+  }
+
+  function responseMessage(text, fallback) {
+    try {
+      const payload = JSON.parse(String(text || ""));
+      return payload.error || payload.detail || payload.message || fallback;
+    } catch {
+      return String(text || "").trim() || fallback;
+    }
+  }
+
+  function rateLimitedResponse(status, text) {
+    return status === 429 || /error\s*code\s*[:=]?\s*1015|rate\s*limit/i.test(
+      String(text || "")
+    );
+  }
+
+  async function throttledTextRequest(url) {
+    return queueRequest(async () => {
+      for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt += 1) {
+        const now = Date.now();
+        const spacingWait = Math.max(
+          0,
+          lastRequestAt + REQUEST_MIN_INTERVAL_MS - now
+        );
+        const cooldownWait = Math.max(0, cooldownUntil - now);
+        const waitTime = Math.max(spacingWait, cooldownWait);
+        if (waitTime > 0) await sleep(waitTime);
+
+        lastRequestAt = Date.now();
+        let response;
+        let text;
+        try {
+          response = await fetch(url, { cache: "no-store" });
+          text = await response.text();
+        } catch (error) {
+          if (attempt >= RATE_LIMIT_BACKOFF_MS.length) throw error;
+          const delay = RATE_LIMIT_BACKOFF_MS[attempt];
+          cooldownUntil = Date.now() + delay;
+          await sleep(delay);
+          continue;
+        }
+
+        if (rateLimitedResponse(response.status, text)) {
+          if (attempt >= RATE_LIMIT_BACKOFF_MS.length) {
+            throw new Error(
+              `TennisRatio HTTP ${response.status}：${responseMessage(text, "請求受限")}`
+            );
+          }
+          const delay = RATE_LIMIT_BACKOFF_MS[attempt];
+          cooldownUntil = Date.now() + delay;
+          await sleep(delay);
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            `TennisRatio HTTP ${response.status}：${responseMessage(text, "TennisRatio讀取失敗")}`
+          );
+        }
+
+        cooldownUntil = 0;
+        return text;
+      }
+      throw new Error("TennisRatio請求重試已用盡。");
+    });
+  }
 
   function normalizeBaseUrl(value) {
     return String(value || "").trim().replace(/\/+$/, "");
@@ -36,42 +125,37 @@
   }
 
   async function fetchText(url) {
-    if (requestCache.has(url)) return requestCache.get(url);
-    const promise = fetch(url, { cache: "no-store" }).then(async response => {
-      if (!response.ok) {
-        const detail = await responseDetail(response, "TennisRatio讀取失敗");
-        throw new Error(`TennisRatio HTTP ${response.status}：${detail}`);
-      }
-      return response.text();
-    });
-    requestCache.set(url, promise);
+    const cacheKey = `text:${stableRequestUrl(url)}`;
+    if (requestCache.has(cacheKey)) {
+      return requestCache.get(cacheKey);
+    }
+    const promise = throttledTextRequest(url);
+    requestCache.set(cacheKey, promise);
     try {
       return await promise;
     } catch (error) {
-      requestCache.delete(url);
+      requestCache.delete(cacheKey);
       throw error;
     }
   }
 
   async function fetchJson(url) {
-    if (requestCache.has(url)) return requestCache.get(url);
-    const promise = fetch(url, { cache: "no-store" }).then(async response => {
-      if (!response.ok) {
-        const detail = await responseDetail(response, "TennisRatio讀取失敗");
-        throw new Error(`TennisRatio HTTP ${response.status}：${detail}`);
-      }
-      const text = await response.text();
+    const cacheKey = `json:${stableRequestUrl(url)}`;
+    if (requestCache.has(cacheKey)) {
+      return requestCache.get(cacheKey);
+    }
+    const promise = throttledTextRequest(url).then(text => {
       try {
         return JSON.parse(text);
       } catch {
         throw new Error("TennisRatio球員統計不是有效JSON。");
       }
     });
-    requestCache.set(url, promise);
+    requestCache.set(cacheKey, promise);
     try {
       return await promise;
     } catch (error) {
-      requestCache.delete(url);
+      requestCache.delete(cacheKey);
       throw error;
     }
   }
@@ -463,12 +547,18 @@
     return scored.slice(0, 5).map(item => item[1]);
   }
 
+  function validRank(value) {
+    const rank = Number(value);
+    return Number.isInteger(rank) && rank > 0 ? rank : null;
+  }
+
   function scheduleIdentity(playerName, schedules) {
     const matches = [];
     for (const item of Array.isArray(schedules) ? schedules : []) {
       for (const side of ["a", "b"]) {
         const officialName = String(item?.[`player_${side}`] || "");
         const playerId = String(item?.[`player_${side}_id`] || "");
+        const scheduleRank = validRank(item?.[`player_${side}_rank`]);
         const score = utils.similarity(playerName, officialName);
         if (utils.compatibleName(playerName, officialName) || score >= 0.88) {
           matches.push([
@@ -476,121 +566,247 @@
             officialName,
             playerId,
             item.h2h_url || null,
-            item.surface || null
+            item.surface || null,
+            scheduleRank
           ]);
         }
       }
     }
-    if (!matches.length) return [null, null, null, null];
+    if (!matches.length) return [null, null, null, null, null];
     matches.sort((left, right) => right[0] - left[0]);
     const best = matches[0];
     if (
       matches.length > 1 &&
       best[0] - matches[1][0] < 0.04 &&
       best[1] !== matches[1][1]
-    ) return [null, null, null, null];
-    return [best[1], best[2], best[3], best[4]];
+    ) return [null, null, null, null, null];
+    return [best[1], best[2], best[3], best[4], best[5]];
   }
 
   function validStats(data) {
     return Number(data?.stats?.matches_played || 0) > 0;
   }
 
-  async function resolvePlayer({ workerUrl, name, surface, tour, schedules }) {
-    const [officialName, scheduleId, h2hUrl, scheduleSurface] =
-      scheduleIdentity(name, schedules);
-    const effectiveSurface = String(surface || scheduleSurface || "").toLocaleLowerCase("en-US") || null;
+  function normalizedRankCandidate(candidate, fallbackSource = null) {
+    const rank = validRank(candidate?.rank ?? candidate);
+    if (rank === null) return null;
+    return {
+      rank,
+      source: String(candidate?.source || fallbackSource || "unknown")
+    };
+  }
+
+  function chooseRank(preferredRank, scheduleRank, profile) {
+    return (
+      normalizedRankCandidate(preferredRank) ||
+      normalizedRankCandidate(
+        scheduleRank,
+        "TennisRatio_schedule"
+      ) ||
+      normalizedRankCandidate(
+        profile?.rank,
+        profile?.rank_source || "player_profile"
+      )
+    );
+  }
+
+  async function resolvePlayer({
+    workerUrl,
+    name,
+    surface,
+    tour,
+    schedules,
+    preferredRank = null
+  }) {
+    const [
+      officialName,
+      scheduleId,
+      h2hUrl,
+      scheduleSurface,
+      scheduleRank
+    ] = scheduleIdentity(name, schedules);
+    const effectiveSurface = String(
+      surface || scheduleSurface || ""
+    ).toLocaleLowerCase("en-US") || null;
     const expectedNames = [officialName, name]
       .map(value => String(value || "").trim())
       .filter(Boolean);
     const candidateIds = [];
 
     function addCandidate(value, source) {
-      const candidate = String(value || "").replace(/[^A-Za-z0-9]/g, "");
-      if (candidate && !candidateIds.some(item => item[0] === candidate)) {
+      const candidate = String(value || "")
+        .replace(/[^A-Za-z0-9]/g, "");
+      if (
+        candidate &&
+        !candidateIds.some(item => item[0] === candidate)
+      ) {
         candidateIds.push([candidate, source]);
       }
     }
 
     addCandidate(scheduleId, "schedule_player_id");
     for (const candidateName of expectedNames) {
-      addCandidate(playerIdFromName(candidateName), "name_generated_id");
-    }
-    for (const playerId of await directoryPlayerIds(workerUrl, name, tour)) {
-      addCandidate(playerId, "player_directory");
+      addCandidate(
+        playerIdFromName(candidateName),
+        "name_generated_id"
+      );
     }
 
     const errors = [];
-    for (const [playerId, resolutionSource] of candidateIds) {
-      let allData = null;
-      let mainData = null;
-      let profile = null;
-      let actualName = officialName || name;
 
-      if (SURFACES.has(effectiveSurface)) {
-        const statsResults = await Promise.allSettled([
-          fetchPlayerStats(workerUrl, playerId, effectiveSurface, "all"),
-          fetchPlayerStats(workerUrl, playerId, effectiveSurface, "main")
-        ]);
-        for (const [index, result] of statsResults.entries()) {
-          const level = index === 0 ? "all" : "main";
-          if (result.status === "rejected") {
-            errors.push(result.reason?.message || String(result.reason));
-            continue;
+    async function tryCandidates(candidates) {
+      for (const [playerId, resolutionSource] of candidates) {
+        let allData = null;
+        let mainData = null;
+        let profile = null;
+        let actualName = officialName || name;
+
+        if (SURFACES.has(effectiveSurface)) {
+          // 嚴格依序讀取 All Levels 與 Main Tour，
+          // 不再使用 Promise.all 同時撞 TennisRatio。
+          for (const level of ["all", "main"]) {
+            try {
+              const data = await fetchPlayerStats(
+                workerUrl,
+                playerId,
+                effectiveSurface,
+                level
+              );
+              const returnedName = String(
+                data.player_name || data.name || ""
+              ).trim();
+              if (
+                returnedName &&
+                !expectedNames.some(expected =>
+                  utils.compatibleName(expected, returnedName)
+                )
+              ) {
+                errors.push(
+                  `${playerId}/${level}回傳${returnedName}，與${name}不相容`
+                );
+                continue;
+              }
+              actualName = returnedName || actualName;
+              if (level === "all") allData = data;
+              else mainData = data;
+            } catch (error) {
+              errors.push(error?.message || String(error));
+            }
           }
-          const data = result.value;
-          const returnedName = String(data.player_name || data.name || "").trim();
-          if (
-            returnedName &&
-            !expectedNames.some(expected => utils.compatibleName(expected, returnedName))
-          ) {
-            errors.push(`${playerId}/${level}回傳${returnedName}，與${name}不相容`);
-            continue;
-          }
-          actualName = returnedName || actualName;
-          if (level === "all") allData = data;
-          else mainData = data;
         }
-      }
 
-      try {
-        profile = await fetchPlayerProfileRank(workerUrl, playerId, actualName);
-        actualName = profile.name || actualName;
-      } catch (error) {
-        errors.push(error?.message || String(error));
-      }
+        let selectedRank = chooseRank(
+          preferredRank,
+          scheduleRank,
+          null
+        );
 
-      if (!allData && !mainData && !profile) continue;
-      const allValid = validStats(allData || {});
-      const mainValid = validStats(mainData || {});
-      return {
-        found: true,
-        Pinnacle姓名: name,
-        正式姓名: actualName,
-        player_id: playerId,
-        rank: profile?.rank ?? null,
-        rank_source: profile?.rank_source ?? null,
-        profile_url: profile?.profile_url || `${BASE_URL}/players/${encodeURIComponent(playerId)}.html`,
-        h2h_url: h2hUrl,
-        surface: effectiveSurface,
-        all_surface: allValid ? allData : {},
-        main_surface: mainValid ? mainData : {},
-        all_surface_sample_valid: allValid,
-        main_surface_sample_valid: mainValid,
-        resolution_source: resolutionSource,
-        data_status: allData && mainData && profile ? "complete" : "partial",
-        errors: errors.slice(-6)
-      };
+        // 只有365Scores與TennisRatio賽程都沒有排名時，
+        // 才低速請求Profile作最後備援。
+        if (!selectedRank) {
+          try {
+            profile = await fetchPlayerProfileRank(
+              workerUrl,
+              playerId,
+              actualName
+            );
+            actualName = profile.name || actualName;
+            selectedRank = chooseRank(
+              preferredRank,
+              scheduleRank,
+              profile
+            );
+          } catch (error) {
+            errors.push(error?.message || String(error));
+          }
+        }
+
+        const allValid = validStats(allData || {});
+        const mainValid = validStats(mainData || {});
+        if (!allValid && !mainValid && !profile) continue;
+        const statsFound = allValid || mainValid;
+        const rankFound = Boolean(selectedRank);
+        let dataStatus = "partial";
+        if (allValid && mainValid && rankFound) {
+          dataStatus = "complete";
+        } else if (statsFound && !rankFound) {
+          dataStatus = "rank_missing";
+        } else if (!statsFound && rankFound) {
+          dataStatus = "stats_missing";
+        }
+
+        return {
+          found: true,
+          identity_found: true,
+          stats_found: statsFound,
+          rank_found: rankFound,
+          Pinnacle姓名: name,
+          正式姓名: actualName,
+          player_id: playerId,
+          rank: selectedRank?.rank ?? null,
+          rank_source: selectedRank?.source ?? null,
+          rank_candidates: {
+            "365Scores": normalizedRankCandidate(preferredRank)?.rank ?? null,
+            TennisRatio_schedule: validRank(scheduleRank),
+            TennisRatio_profile: validRank(profile?.rank)
+          },
+          profile_url:
+            profile?.profile_url ||
+            `${BASE_URL}/players/${encodeURIComponent(playerId)}.html`,
+          h2h_url: h2hUrl,
+          surface: effectiveSurface,
+          all_surface: allValid ? allData : {},
+          main_surface: mainValid ? mainData : {},
+          all_surface_sample_valid: allValid,
+          main_surface_sample_valid: mainValid,
+          resolution_source: resolutionSource,
+          data_status: dataStatus,
+          errors: errors.slice(-8)
+        };
+      }
+      return null;
     }
 
+    let resolved = await tryCandidates(candidateIds);
+    if (resolved) return resolved;
+
+    // Directory 是最後的球員ID備援，不再為每位球員預先請求。
+    const previousLength = candidateIds.length;
+    for (const playerId of await directoryPlayerIds(
+      workerUrl,
+      name,
+      tour
+    )) {
+      addCandidate(playerId, "player_directory");
+    }
+    resolved = await tryCandidates(
+      candidateIds.slice(previousLength)
+    );
+    if (resolved) return resolved;
+
+    const fallbackRank = chooseRank(
+      preferredRank,
+      scheduleRank,
+      null
+    );
     return {
       found: false,
+      identity_found: Boolean(officialName),
+      stats_found: false,
+      rank_found: Boolean(fallbackRank),
       Pinnacle姓名: name,
       正式姓名: officialName || name,
-      player_id: null,
-      rank: null,
-      rank_source: null,
-      profile_url: null,
+      player_id: scheduleId || null,
+      rank: fallbackRank?.rank ?? null,
+      rank_source: fallbackRank?.source ?? null,
+      rank_candidates: {
+        "365Scores": normalizedRankCandidate(preferredRank)?.rank ?? null,
+        TennisRatio_schedule: validRank(scheduleRank),
+        TennisRatio_profile: null
+      },
+      profile_url: scheduleId
+        ? `${BASE_URL}/players/${encodeURIComponent(scheduleId)}.html`
+        : null,
       h2h_url: h2hUrl,
       surface: effectiveSurface,
       all_surface: {},
@@ -598,8 +814,10 @@
       all_surface_sample_valid: false,
       main_surface_sample_valid: false,
       resolution_source: null,
-      data_status: "not_found",
-      errors: errors.slice(-8)
+      data_status: fallbackRank
+        ? "stats_missing"
+        : "not_found",
+      errors: errors.slice(-10)
     };
   }
 
@@ -709,7 +927,17 @@
     stats,
     profileName,
     currentRank,
+    validRank,
     validStats,
-    clearMemoryCache: () => requestCache.clear()
+    normalizedRankCandidate,
+    chooseRank,
+    REQUEST_MIN_INTERVAL_MS,
+    RATE_LIMIT_BACKOFF_MS,
+    clearMemoryCache: () => {
+      requestCache.clear();
+      requestSerial = Promise.resolve();
+      lastRequestAt = 0;
+      cooldownUntil = 0;
+    }
   };
 });

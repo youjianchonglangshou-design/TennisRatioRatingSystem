@@ -70,6 +70,54 @@
     return [String(home.name || ""), String(away.name || "")];
   }
 
+  function validRank(value) {
+    const rank = Number(value);
+    return Number.isInteger(rank) && rank > 0 ? rank : null;
+  }
+
+  function rankingPosition(competitor, tour = null) {
+    if (!competitor || typeof competitor !== "object") return null;
+    const rankings = Array.isArray(competitor.rankings)
+      ? competitor.rankings
+      : [];
+    const desired = String(tour || "").toUpperCase();
+
+    if (desired === "ATP" || desired === "WTA") {
+      const exact = rankings.find(item =>
+        String(item?.name || "").toUpperCase() === desired &&
+        validRank(item?.position) !== null
+      );
+      if (exact) return validRank(exact.position);
+    }
+
+    for (const item of rankings) {
+      const name = String(item?.name || "").toUpperCase();
+      if (!new Set(["ATP", "WTA"]).has(name)) continue;
+      const rank = validRank(item?.position);
+      if (rank !== null) return rank;
+    }
+
+    return null;
+  }
+
+  function competitorIndex(payload) {
+    const index = new Map();
+    for (const item of Array.isArray(payload?.competitors) ? payload.competitors : []) {
+      const id = utils.finiteNumber(item?.id);
+      if (id !== null) index.set(Number(id), item);
+    }
+    return index;
+  }
+
+  function competitorWithFallback(primary, index) {
+    if (!primary || typeof primary !== "object") return {};
+    const id = utils.finiteNumber(primary.id);
+    const indexed = id !== null ? index.get(Number(id)) : null;
+    return indexed && typeof indexed === "object"
+      ? { ...indexed, ...primary }
+      : primary;
+  }
+
   function match(row, snapshots) {
     const sourceHome = String(row?.["主場"] || "");
     const sourceAway = String(row?.["客場"] || "");
@@ -116,11 +164,15 @@
           ""
         );
         let competitionScore = utils.similarity(league, competition);
+        const compactCompetition = competition
+          .toLocaleLowerCase("en-US")
+          .replace(/\s+/g, "");
+        const compactLeague = league
+          .toLocaleLowerCase("en-US")
+          .replace(/\s+/g, "");
         if (
-          competition &&
-          competition.toLocaleLowerCase("en-US").replace(/\s+/g, "")
-            && league.toLocaleLowerCase("en-US").replace(/\s+/g, "")
-              .includes(competition.toLocaleLowerCase("en-US").replace(/\s+/g, ""))
+          compactCompetition &&
+          compactLeague.includes(compactCompetition)
         ) {
           competitionScore = Math.max(competitionScore, 0.95);
         }
@@ -133,6 +185,7 @@
           competitionScore,
           reversedPair,
           game,
+          snapshot,
           competition,
           pairScore
         });
@@ -152,17 +205,23 @@
     if (best.score < 0.72 && !(oneExactOk && best.score >= 0.62)) return null;
     if (best.score - secondScore < 0.025 && best.exactCount < 2) return null;
 
-    const [gameHome, gameAway] = names(best.game);
-    const [matchedHome, matchedAway] = best.reversedPair
-      ? [gameAway, gameHome]
-      : [gameHome, gameAway];
+    const index = competitorIndex(best.snapshot);
+    const gameHome = competitorWithFallback(best.game.homeCompetitor || {}, index);
+    const gameAway = competitorWithFallback(best.game.awayCompetitor || {}, index);
+    const sourceHomeCompetitor = best.reversedPair ? gameAway : gameHome;
+    const sourceAwayCompetitor = best.reversedPair ? gameHome : gameAway;
+
     return {
       game: best.game,
+      snapshot: best.snapshot,
       competition: best.competition,
       score: best.score,
       pair: best.pairScore,
-      主場365姓名: matchedHome,
-      客場365姓名: matchedAway
+      reversedPair: best.reversedPair,
+      主場365姓名: String(sourceHomeCompetitor.name || ""),
+      客場365姓名: String(sourceAwayCompetitor.name || ""),
+      主場365競賽者: sourceHomeCompetitor,
+      客場365競賽者: sourceAwayCompetitor
     };
   }
 
@@ -176,7 +235,34 @@
     return null;
   }
 
-  async function fetchSurface(workerUrl, matched) {
+  function rankDataFromMatched(matched, row) {
+    const tour = utils.tour(row);
+    const homeRank = rankingPosition(matched?.主場365競賽者, tour);
+    const awayRank = rankingPosition(matched?.客場365競賽者, tour);
+    return {
+      主場排名: homeRank,
+      客場排名: awayRank,
+      主場排名來源: homeRank !== null ? "365Scores_day" : null,
+      客場排名來源: awayRank !== null ? "365Scores_day" : null
+    };
+  }
+
+  function detailCompetitor(payload, gameSide, competitorId) {
+    const detailGame = payload?.game && typeof payload.game === "object"
+      ? payload.game
+      : payload;
+    const fromGame = detailGame?.[gameSide] && typeof detailGame[gameSide] === "object"
+      ? detailGame[gameSide]
+      : {};
+    const index = competitorIndex(payload);
+    const id = utils.finiteNumber(fromGame?.id ?? competitorId);
+    const fromIndex = id !== null ? index.get(Number(id)) : null;
+    return fromIndex && typeof fromIndex === "object"
+      ? { ...fromIndex, ...fromGame }
+      : fromGame;
+  }
+
+  async function fetchMatchDetail(workerUrl, matched, row) {
     const game = matched?.game || {};
     const home = game.homeCompetitor && typeof game.homeCompetitor === "object"
       ? game.homeCompetitor
@@ -200,53 +286,128 @@
       const detail = await responseDetail(response, "365Scores場次明細讀取失敗");
       throw new Error(`365Scores HTTP ${response.status}：${detail}`);
     }
+
     const payload = await response.json();
-    const detail = payload?.game && typeof payload.game === "object"
+    const detailGame = payload?.game && typeof payload.game === "object"
       ? payload.game
       : payload;
     const displayName =
-      detail?.competitionDisplayName ||
+      detailGame?.competitionDisplayName ||
       game.competitionDisplayName ||
       matched.competition;
+    const gameHome = detailCompetitor(payload, "homeCompetitor", home.id);
+    const gameAway = detailCompetitor(payload, "awayCompetitor", away.id);
+    const sourceHome = matched.reversedPair ? gameAway : gameHome;
+    const sourceAway = matched.reversedPair ? gameHome : gameAway;
+    const tour = utils.tour(row);
+    const homeRank = rankingPosition(sourceHome, tour);
+    const awayRank = rankingPosition(sourceAway, tour);
+
     return {
+      payload,
       source: "365Scores",
       surface: surfaceText(displayName),
       game_id: game.id,
       competitionDisplayName: displayName,
-      match_score: matched.score
+      match_score: matched.score,
+      主場排名: homeRank,
+      客場排名: awayRank,
+      主場排名來源: homeRank !== null ? "365Scores_game" : null,
+      客場排名來源: awayRank !== null ? "365Scores_game" : null
     };
   }
 
-  async function resolveSurface(workerUrl, row, snapshots) {
+  async function resolveMatchData(workerUrl, row, snapshots, options = {}) {
     const matched = match(row, snapshots);
     if (!matched) {
       return {
         source: "365Scores",
         surface: null,
+        主場排名: null,
+        客場排名: null,
         match_status: "match_unmatched"
       };
     }
-    try {
+
+    const dayRank = rankDataFromMatched(matched, row);
+    const daySurface = surfaceText(
+      matched.game?.competitionDisplayName || matched.competition
+    );
+    const needDetail = options.fetchDetail !== false && (
+      options.requireSurface === true ||
+      dayRank.主場排名 === null ||
+      dayRank.客場排名 === null
+    );
+
+    if (!needDetail) {
       return {
-        ...(await fetchSurface(workerUrl, matched)),
+        source: "365Scores",
+        surface: daySurface,
+        game_id: matched.game?.id ?? null,
+        competitionDisplayName:
+          matched.game?.competitionDisplayName || matched.competition,
+        match_score: matched.score,
+        主場365姓名: matched.主場365姓名,
+        客場365姓名: matched.客場365姓名,
+        ...dayRank,
+        match_status: "matched_day"
+      };
+    }
+
+    try {
+      const detail = await fetchMatchDetail(workerUrl, matched, row);
+      return {
+        ...detail,
+        主場365姓名: matched.主場365姓名,
+        客場365姓名: matched.客場365姓名,
+        主場排名: detail.主場排名 ?? dayRank.主場排名,
+        客場排名: detail.客場排名 ?? dayRank.客場排名,
+        主場排名來源:
+          detail.主場排名來源 ?? dayRank.主場排名來源,
+        客場排名來源:
+          detail.客場排名來源 ?? dayRank.客場排名來源,
+        surface: detail.surface || daySurface,
         match_status: "matched"
       };
     } catch (error) {
       return {
         source: "365Scores",
-        surface: null,
-        match_status: "surface_request_failed",
+        surface: daySurface,
+        game_id: matched.game?.id ?? null,
+        competitionDisplayName:
+          matched.game?.competitionDisplayName || matched.competition,
+        match_score: matched.score,
+        主場365姓名: matched.主場365姓名,
+        客場365姓名: matched.客場365姓名,
+        ...dayRank,
+        match_status: "detail_request_failed",
         error: `${error?.name || "Error"}: ${error?.message || String(error)}`
       };
     }
   }
 
+  async function fetchSurface(workerUrl, matched, row = {}) {
+    return fetchMatchDetail(workerUrl, matched, row);
+  }
+
+  async function resolveSurface(workerUrl, row, snapshots) {
+    return resolveMatchData(workerUrl, row, snapshots, {
+      requireSurface: true
+    });
+  }
+
   return {
     fetchDay,
     names,
+    validRank,
+    rankingPosition,
+    competitorIndex,
     match,
     surfaceText,
+    rankDataFromMatched,
+    fetchMatchDetail,
     fetchSurface,
+    resolveMatchData,
     resolveSurface
   };
 });

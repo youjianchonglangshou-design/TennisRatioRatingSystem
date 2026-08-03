@@ -45,7 +45,12 @@
 
     await Promise.all(
       Array.from(
-        { length: Math.max(1, Math.min(Number(concurrency) || 1, source.length || 1)) },
+        {
+          length: Math.max(
+            1,
+            Math.min(Number(concurrency) || 1, source.length || 1)
+          )
+        },
         worker
       )
     );
@@ -59,24 +64,33 @@
   }
 
   async function loadSurfaceSources(workerUrl, rows, callback) {
+    // 365Scores 現在不只負責主巡迴場地，也負責 ATP/WTA 排名。
+    // 因此所有場次日期都必須載入，不再排除 Challenger／WTA 125。
     const dates = [...new Set(
-      rows
-        .filter(row => !utils.usesTennisRatioScheduleSurface(row))
-        .map(dateKeyFromRow)
-        .filter(Boolean)
+      rows.map(dateKeyFromRow).filter(Boolean)
     )].sort();
 
     const scoreSnapshots = [];
     const scoreErrors = {};
     for (const dateKey of dates) {
-      progress(callback, `正在讀取365比分網 ${dateKey} ATP／WTA主巡迴場地……`, {
-        stage: "365_day",
-        date: dateKey
-      });
+      progress(
+        callback,
+        `正在讀取365比分網 ${dateKey} 場地與ATP／WTA排名……`,
+        {
+          stage: "365_day",
+          date: dateKey
+        }
+      );
       try {
-        scoreSnapshots.push(await scores365.fetchDay(workerUrl, `${dateKey}T00:00:00+08:00`));
+        scoreSnapshots.push(
+          await scores365.fetchDay(
+            workerUrl,
+            `${dateKey}T00:00:00+08:00`
+          )
+        );
       } catch (error) {
-        scoreErrors[dateKey] = `${error?.name || "Error"}: ${error?.message || String(error)}`;
+        scoreErrors[dateKey] =
+          `${error?.name || "Error"}: ${error?.message || String(error)}`;
       }
     }
 
@@ -85,27 +99,56 @@
     const scheduleErrors = {};
     for (const tourName of ["ATP", "WTA"]) {
       if (!neededTours.has(tourName)) continue;
-      progress(callback, `正在讀取TennisRatio ${tourName}賽程、場地與球員識別資料……`, {
-        stage: "tennisratio_schedule",
-        tour: tourName
-      });
+      progress(
+        callback,
+        `正在讀取TennisRatio ${tourName}賽程、場地、球員識別與備援排名……`,
+        {
+          stage: "tennisratio_schedule",
+          tour: tourName
+        }
+      );
       try {
-        schedules[tourName] = await tennisratio.fetchSchedule(workerUrl, tourName);
+        schedules[tourName] = await tennisratio.fetchSchedule(
+          workerUrl,
+          tourName
+        );
       } catch (error) {
-        scheduleErrors[tourName] = `${error?.name || "Error"}: ${error?.message || String(error)}`;
+        scheduleErrors[tourName] =
+          `${error?.name || "Error"}: ${error?.message || String(error)}`;
       }
     }
-    return { scoreSnapshots, schedules, scoreErrors, scheduleErrors };
+    return {
+      scoreSnapshots,
+      schedules,
+      scoreErrors,
+      scheduleErrors
+    };
   }
 
-  function emptyPlayer(name, surface, errors = []) {
+  function validRankCandidate(rank, source) {
+    const value = Number(rank);
+    if (!Number.isInteger(value) || value <= 0) return null;
+    return {
+      rank: value,
+      source: String(source || "unknown")
+    };
+  }
+
+  function emptyPlayer(name, surface, errors = [], rankCandidate = null) {
+    const preferred = validRankCandidate(
+      rankCandidate?.rank,
+      rankCandidate?.source
+    );
     return {
       found: false,
+      identity_found: false,
+      stats_found: false,
+      rank_found: Boolean(preferred),
       Pinnacle姓名: name,
       正式姓名: name,
       player_id: null,
-      rank: null,
-      rank_source: null,
+      rank: preferred?.rank ?? null,
+      rank_source: preferred?.source ?? null,
       profile_url: null,
       h2h_url: null,
       surface: surface || null,
@@ -114,39 +157,62 @@
       all_surface_sample_valid: false,
       main_surface_sample_valid: false,
       resolution_source: null,
-      data_status: "not_found",
+      data_status: preferred ? "identity_missing" : "not_found",
       errors: errors.slice(-8)
     };
+  }
+
+  function preferredRankFrom365(scoreInfo, side) {
+    const prefix = side === "home" ? "主場" : "客場";
+    return validRankCandidate(
+      scoreInfo?.[`${prefix}排名`],
+      scoreInfo?.[`${prefix}排名來源`] || "365Scores"
+    );
   }
 
   async function enrichOne(workerUrl, row, sourceState) {
     const rowTour = utils.tour(row);
     const playerSchedule = rowTour
       ? sourceState.schedules[rowTour] || []
-      : [...(sourceState.schedules.ATP || []), ...(sourceState.schedules.WTA || [])];
+      : [
+          ...(sourceState.schedules.ATP || []),
+          ...(sourceState.schedules.WTA || [])
+        ];
+
+    const scheduleOwnsSurface =
+      utils.usesTennisRatioScheduleSurface(row);
+
+    // 每場只做一次 365Scores 配對。
+    // 主巡迴需要它的場地；所有層級都使用它的排名。
+    const scoreInfo = await scores365.resolveMatchData(
+      workerUrl,
+      row,
+      sourceState.scoreSnapshots,
+      {
+        requireSurface: !scheduleOwnsSurface,
+        fetchDetail: true
+      }
+    );
 
     let surfaceInfo;
     let surfaceSource;
     const sourceFields = {
-      "365Scores": {},
+      "365Scores": { ...scoreInfo },
       "TennisRatio賽事場地": {}
     };
 
-    if (utils.usesTennisRatioScheduleSurface(row)) {
+    if (scheduleOwnsSurface) {
       surfaceInfo = tennisratio.scheduleSurface(
         row,
         sourceState.schedules[rowTour] || []
       );
       surfaceSource = "TennisRatio賽程";
-      sourceFields["TennisRatio賽事場地"] = { ...surfaceInfo };
+      sourceFields["TennisRatio賽事場地"] = {
+        ...surfaceInfo
+      };
     } else {
-      surfaceInfo = await scores365.resolveSurface(
-        workerUrl,
-        row,
-        sourceState.scoreSnapshots
-      );
+      surfaceInfo = scoreInfo;
       surfaceSource = "365Scores";
-      sourceFields["365Scores"] = { ...surfaceInfo };
     }
 
     const surface = String(surfaceInfo?.surface || "");
@@ -155,30 +221,59 @@
       ? surface.toLocaleLowerCase("en-US")
       : null;
 
-    const names = [String(row?.["主場"] || ""), String(row?.["客場"] || "")];
-    const playerResults = await Promise.allSettled([
-      tennisratio.resolvePlayer({
+    const names = [
+      String(row?.["主場"] || ""),
+      String(row?.["客場"] || "")
+    ];
+    const homePreferredRank = preferredRankFrom365(
+      scoreInfo,
+      "home"
+    );
+    const awayPreferredRank = preferredRankFrom365(
+      scoreInfo,
+      "away"
+    );
+
+    // TennisRatio 使用嚴格單線限流：
+    // 每次只處理一位球員，不再同時打主客場請求。
+    let homePlayer;
+    let awayPlayer;
+
+    try {
+      homePlayer = await tennisratio.resolvePlayer({
         workerUrl,
         name: names[0],
         surface: surfaceKey,
         tour: rowTour,
-        schedules: playerSchedule
-      }),
-      tennisratio.resolvePlayer({
+        schedules: playerSchedule,
+        preferredRank: homePreferredRank
+      });
+    } catch (error) {
+      homePlayer = emptyPlayer(
+        names[0],
+        surfaceKey,
+        [error?.message || String(error)],
+        homePreferredRank
+      );
+    }
+
+    try {
+      awayPlayer = await tennisratio.resolvePlayer({
         workerUrl,
         name: names[1],
         surface: surfaceKey,
         tour: rowTour,
-        schedules: playerSchedule
-      })
-    ]);
-
-    const homePlayer = playerResults[0].status === "fulfilled"
-      ? playerResults[0].value
-      : emptyPlayer(names[0], surfaceKey, [playerResults[0].reason?.message || String(playerResults[0].reason)]);
-    const awayPlayer = playerResults[1].status === "fulfilled"
-      ? playerResults[1].value
-      : emptyPlayer(names[1], surfaceKey, [playerResults[1].reason?.message || String(playerResults[1].reason)]);
+        schedules: playerSchedule,
+        preferredRank: awayPreferredRank
+      });
+    } catch (error) {
+      awayPlayer = emptyPlayer(
+        names[1],
+        surfaceKey,
+        [error?.message || String(error)],
+        awayPreferredRank
+      );
+    }
 
     return {
       項次: row?.項次 ?? null,
@@ -209,7 +304,12 @@
       source_status: {
         surface_resolved: Boolean(surface),
         home_player_found: Boolean(homePlayer.found),
-        away_player_found: Boolean(awayPlayer.found)
+        away_player_found: Boolean(awayPlayer.found),
+        home_rank_found: Number(homePlayer.rank) > 0,
+        away_rank_found: Number(awayPlayer.rank) > 0,
+        both_ranks_found:
+          Number(homePlayer.rank) > 0 &&
+          Number(awayPlayer.rank) > 0
       }
     };
   }
@@ -220,25 +320,59 @@
       surface_resolved: 0,
       both_players_found: 0,
       one_or_more_players_missing: 0,
+      both_ranks_found: 0,
+      one_or_more_ranks_missing: 0,
+      ranks_from_365scores: 0,
+      ranks_from_tennisratio_schedule: 0,
+      ranks_from_tennisratio_profile: 0,
       complete_players: 0,
       partial_players: 0,
       not_found_players: 0
     };
+
     for (const item of matches) {
-      if (item?.source_status?.surface_resolved) summary.surface_resolved += 1;
+      if (item?.source_status?.surface_resolved) {
+        summary.surface_resolved += 1;
+      }
       if (
         item?.source_status?.home_player_found &&
         item?.source_status?.away_player_found
-      ) summary.both_players_found += 1;
-      else summary.one_or_more_players_missing += 1;
+      ) {
+        summary.both_players_found += 1;
+      } else {
+        summary.one_or_more_players_missing += 1;
+      }
+
+      if (item?.source_status?.both_ranks_found) {
+        summary.both_ranks_found += 1;
+      } else {
+        summary.one_or_more_ranks_missing += 1;
+      }
 
       for (const player of [
         item?.TennisRatio?.主場球員,
         item?.TennisRatio?.客場球員
       ]) {
-        if (player?.data_status === "complete") summary.complete_players += 1;
-        else if (player?.data_status === "partial") summary.partial_players += 1;
-        else summary.not_found_players += 1;
+        const rankSource = String(player?.rank_source || "");
+        if (rankSource.startsWith("365Scores")) {
+          summary.ranks_from_365scores += 1;
+        } else if (rankSource === "TennisRatio_schedule") {
+          summary.ranks_from_tennisratio_schedule += 1;
+        } else if (rankSource === "player_profile") {
+          summary.ranks_from_tennisratio_profile += 1;
+        }
+
+        if (player?.data_status === "complete") {
+          summary.complete_players += 1;
+        } else if (
+          player?.data_status === "partial" ||
+          player?.data_status === "rank_missing" ||
+          player?.data_status === "stats_missing"
+        ) {
+          summary.partial_players += 1;
+        } else {
+          summary.not_found_players += 1;
+        }
       }
     }
     return summary;
@@ -248,26 +382,42 @@
     const workerUrl = String(options.workerUrl || "").trim();
     if (!workerUrl) throw new Error("WORKER_URL 尚未設定。");
     const rows = Array.isArray(todayPayload?.matches)
-      ? todayPayload.matches.filter(item => item && typeof item === "object")
+      ? todayPayload.matches.filter(
+          item => item && typeof item === "object"
+        )
       : [];
     const callback = options.progress;
 
-    progress(callback, `Phase 3｜開始載入 ${rows.length} 場的365Scores與TennisRatio資料……`, {
-      stage: "source_start",
-      total: rows.length
-    });
-    const sourceState = await loadSurfaceSources(workerUrl, rows, callback);
+    progress(
+      callback,
+      `Phase 3｜開始載入 ${rows.length} 場的365Scores排名與TennisRatio限流資料……`,
+      {
+        stage: "source_start",
+        total: rows.length
+      }
+    );
+    const sourceState = await loadSurfaceSources(
+      workerUrl,
+      rows,
+      callback
+    );
 
     let completed = 0;
+    // 強制單場序列處理。即使 app.js 傳入 concurrency: 2，
+    // TennisRatio 仍只會以一條請求管線執行。
     const matches = await mapWithConcurrency(
       rows,
-      options.concurrency || 2,
+      1,
       async row => {
-        const result = await enrichOne(workerUrl, row, sourceState);
+        const result = await enrichOne(
+          workerUrl,
+          row,
+          sourceState
+        );
         completed += 1;
         progress(
           callback,
-          `Phase 3｜資料 ${completed}/${rows.length}：${result.主場} vs ${result.客場}`,
+          `Phase 3｜限流資料 ${completed}/${rows.length}：${result.主場} vs ${result.客場}`,
           {
             stage: "source_match",
             completed,
@@ -281,14 +431,26 @@
 
     const health = summarize(matches);
     return {
-      version: "3.0",
+      version: "3.1-rank-fallback-rate-limit",
       generated_at_taiwan: utils.isoTaipeiNow(),
       source: {
         Pinnacle: "today_matches.json 的比賽、選手與賠率",
-        "365比分網": "ATP／WTA主巡迴場地（由 Cloudflare Worker 代理）",
-        TennisRatio賽程: "ATP Challenger／WTA 125場地與球員識別",
-        TennisRatio球員: "正式姓名、Profile、排名、All Levels與Main Tour同場地數據"
+        "365比分網":
+          "ATP／WTA場地與第一順位排名（day/game competitors[].rankings[].position）",
+        TennisRatio賽程:
+          "ATP Challenger／WTA 125場地、球員識別與第二順位排名",
+        TennisRatio球員:
+          "正式姓名、All Levels與Main Tour同場地數據；Profile只作最後順位排名備援",
+        TennisRatio限流:
+          "單場、單球員、單請求序列執行；請求間隔與429全域冷卻由tennisratio.js控制"
       },
+      rank_policy: [
+        "365Scores日清單／場次明細排名",
+        "TennisRatio賽程頁排名",
+        "Cloudflare R2快取的TennisRatio Profile排名",
+        "低速重新抓取TennisRatio Profile",
+        "全部失敗才判定排名缺失"
+      ],
       source_errors: {
         "365Scores": sourceState.scoreErrors,
         TennisRatio_schedule: sourceState.scheduleErrors
@@ -301,6 +463,8 @@
   return {
     mapWithConcurrency,
     loadSurfaceSources,
+    validRankCandidate,
+    preferredRankFrom365,
     enrichOne,
     summarize,
     buildSourceBundle
