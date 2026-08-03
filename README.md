@@ -2828,3 +2828,58 @@ TennisRatio Groq Compound v1
 2026-08-03（Asia/Taipei）
 ```
 
+
+
+---
+
+# Groq Compound Hotfix 1｜移除不相容的 citations 請求
+
+## 錯誤
+
+```text
+Groq Worker錯誤 HTTP 400
+model groq/compound does not support citations
+```
+
+## 原因
+
+舊版請求主動加入了：
+
+```text
+citation_options
+```
+
+Groq Compound 使用內建 Web Search 時會自行回傳來源資訊，不需要另外要求 citations。
+
+## 修正
+
+```text
+前端不再傳送 citation_options
+Worker 也不再轉傳舊快取前端送來的 citation_options
+```
+
+來源仍從以下回應內容整理：
+
+```text
+message.content
+message.executed_tools
+executed_tools[].search_results
+```
+
+因此移除該請求參數不會關閉 Web Search，也不會移除可取得的來源。
+
+## 覆蓋
+
+GitHub：
+
+```text
+index.html
+README.md
+modules/groq-client.js
+```
+
+Cloudflare：
+
+```text
+cloudflare-worker.js
+```
