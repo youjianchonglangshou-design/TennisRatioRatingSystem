@@ -2883,3 +2883,59 @@ Cloudflare：
 ```text
 cloudflare-worker.js
 ```
+
+
+---
+
+# Groq Compound Hotfix 2｜修正 HTTP 413 Request Entity Too Large
+
+## 原因
+
+`HTTP 413` 表示傳送給 Groq 的 request body 過大。
+
+舊版即使只是詢問：
+
+```text
+目前有幾場 B 級
+```
+
+仍可能傳送多場逐場資料，造成不必要的請求體積。
+
+## 新版問題分流
+
+### 評級數量
+
+只傳全部場次與未過期場次的評級數量，不傳逐場資料。
+
+### 指定項次或球員
+
+最多傳 3 場，保留市場、評級、EV、D值、五項支持、Main／All Levels 權重、十五項廣度統計、排名情境與 BO3 摘要。
+
+### 跨場總覽
+
+只傳超精簡逐場表，不傳完整巢狀 `ratio_analysis`。
+
+## 對話歷史限制
+
+```text
+最多 4 則
+每則最多 1200 字元
+```
+
+## 前端安全上限
+
+```text
+24000 bytes
+```
+
+超過時不送往 Groq，而會提示指定項次或球員。
+
+## 覆蓋
+
+```text
+index.html
+README.md
+modules/groq-client.js
+```
+
+Cloudflare Worker 不需要修改。
