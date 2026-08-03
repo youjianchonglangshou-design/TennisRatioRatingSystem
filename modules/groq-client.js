@@ -851,8 +851,7 @@
       ],
       response_format: {
         type: "json_object"
-      },
-      citation_options: "disabled"
+      }
     };
 
     const response =
@@ -1242,8 +1241,7 @@
       ],
       response_format: {
         type: "json_object"
-      },
-      citation_options: "enabled"
+      }
     };
 
     const response =
@@ -1956,11 +1954,7 @@
     const proxyPayload = {
       model,
       request: {
-        messages,
-        citation_options:
-          options.webGrounding === false
-            ? "disabled"
-            : "enabled"
+        messages
       }
     };
 
