@@ -760,3 +760,160 @@ table.main{
   .risk-cache-status{width:100%}
   .analysis-toast{right:10px;bottom:10px}
 }
+
+
+/* ============================================================
+   External Risk v1 Hotfix 4
+   風險卡文字微幅放大，灰色 ? 說明改為一般用語
+   ============================================================ */
+
+.risk-dialog{
+  width:min(540px,calc(100vw - 26px));
+}
+.risk-dialog-card{
+  padding:15px 17px 17px;
+}
+.risk-dialog-head h2{
+  font-size:19px;
+  line-height:1.3;
+}
+.risk-dialog-head p{
+  font-size:11px;
+  line-height:1.5;
+}
+.risk-badge{
+  min-height:23px;
+  padding:3px 9px;
+  font-size:11px;
+}
+.risk-summary{
+  font-size:12px;
+  line-height:1.65;
+}
+.risk-impact{
+  font-size:11.5px;
+  line-height:1.65;
+}
+.risk-section h3{
+  margin-bottom:7px;
+  font-size:13px;
+}
+.risk-evidence{
+  padding-left:21px;
+}
+.risk-evidence li{
+  margin:8px 0;
+  font-size:11.5px;
+  line-height:1.62;
+}
+.risk-evidence small{
+  margin-top:3px;
+  font-size:10.5px;
+  line-height:1.55;
+}
+.risk-source-list{
+  padding-left:21px;
+  font-size:11.5px;
+  line-height:1.6;
+}
+.risk-source-list li{
+  margin:6px 0;
+}
+.risk-note-text{
+  margin:0;
+  padding:9px 10px;
+  border:1px solid #34495c;
+  border-radius:7px;
+  background:#0d1a28;
+  color:#d2e0eb;
+  font-size:11.5px;
+  font-weight:700;
+  line-height:1.65;
+}
+.risk-meta{
+  font-size:10px;
+  line-height:1.6;
+}
+.risk-disclaimer{
+  font-size:10px;
+  line-height:1.6;
+}
+
+
+/* ============================================================
+   External Risk v1 Hotfix 6
+   Information-first icons and manual-review card
+   ============================================================ */
+
+.external-risk-icon.risk-review{
+  color:#8fb7c8;
+  font-family:Georgia,"Times New Roman",serif;
+  font-size:12px;
+  font-style:italic;
+  font-weight:900;
+  letter-spacing:0;
+  text-shadow:0 0 6px #78b8d455;
+}
+.external-risk-icon.risk-review:hover,
+.external-risk-icon.risk-review:focus-visible{
+  color:#c8ecfa;
+  transform:scale(1.12);
+}
+
+.external-risk-icon.risk-retry{
+  color:#8899a8;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:0;
+}
+.external-risk-icon.risk-retry:hover,
+.external-risk-icon.risk-retry:focus-visible{
+  color:#d3dee6;
+  transform:rotate(25deg) scale(1.08);
+}
+
+.risk-overview.risk-review{
+  border-color:#476b7b;
+  background:
+    linear-gradient(135deg,#122634,#0b1a2a);
+}
+.risk-overview.risk-incomplete{
+  border-color:#596573;
+  background:
+    linear-gradient(135deg,#202730,#0b1a2a);
+}
+
+.risk-badge.risk-review{
+  border:1px solid #5c8799;
+  background:#173443;
+  color:#b9dfed;
+}
+.risk-badge.risk-incomplete{
+  border:1px solid #667684;
+  background:#28323c;
+  color:#ccd7df;
+}
+
+.risk-finding-heading{
+  color:#e4edf4;
+  font-weight:900;
+  line-height:1.55;
+}
+.risk-finding-fact{
+  margin-top:3px;
+  color:#c9d8e3;
+  line-height:1.6;
+}
+.risk-raw-search{
+  max-height:260px;
+  overflow:auto;
+  padding:10px 11px;
+  border:1px solid #38566b;
+  border-radius:8px;
+  background:#081521;
+  color:#cadbe7;
+  font-size:11.5px;
+  line-height:1.7;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
