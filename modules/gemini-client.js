@@ -9,8 +9,6 @@
   const REQUEST_TIMEOUT_MS = 120000;
   const RISK_SCAN_DELAY_MS = 1400;
   const RISK_CACHE_HOURS = 6;
-  const RISK_NEAR_MATCH_CACHE_HOURS = 1;
-  const RISK_NEAR_MATCH_WINDOW_HOURS = 2;
 
   const DEFAULT_SYSTEM_PROMPT =
     "你是 TennisRatio 網球賽事分析助理。全程使用繁體中文，回答清楚、精確、可覆盤。" +
@@ -322,16 +320,12 @@
     const checkedAt = Date.parse(String(entry.checked_at || ""));
     if (!Number.isFinite(checkedAt)) return false;
 
-    const matchTime = parseTaipeiMatchTime(row?.["日期時間"]);
-    const hoursToMatch = Number.isFinite(matchTime)
-      ? (matchTime - nowMs) / 3600000
-      : Number.POSITIVE_INFINITY;
-    const freshnessHours =
-      hoursToMatch <= RISK_NEAR_MATCH_WINDOW_HOURS
-        ? RISK_NEAR_MATCH_CACHE_HOURS
-        : RISK_CACHE_HOURS;
-
-    return nowMs - checkedAt <= freshnessHours * 3600000;
+    // 同一 match_key、熱門方與評級在六小時內，
+    // 直接使用 R2 external_risk.json 的既有結果。
+    return (
+      nowMs - checkedAt <=
+      RISK_CACHE_HOURS * 3600000
+    );
   }
 
   function compactRiskMatch(row) {
