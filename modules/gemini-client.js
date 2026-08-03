@@ -918,6 +918,112 @@
     };
   }
 
+
+  function buildReadableRiskSummary(
+    parsed,
+    fallbackText = ""
+  ) {
+    const direct = String(
+      parsed?.raw_summary || ""
+    ).trim();
+
+    if (
+      direct &&
+      !/^\s*(?:```)?json\b/i.test(direct) &&
+      !/^\s*\{[\s\S]*\}\s*$/.test(direct)
+    ) {
+      return direct.slice(0, 12000);
+    }
+
+    const lines = [];
+    const findings = Array.isArray(
+      parsed?.findings
+    )
+      ? parsed.findings
+      : (
+          Array.isArray(parsed?.evidence)
+            ? parsed.evidence
+            : []
+        );
+
+    findings.forEach((finding, index) => {
+      const date =
+        String(finding?.date || "").trim() ||
+        "日期未明";
+      const title =
+        String(
+          finding?.title ||
+          finding?.fact ||
+          "近期資訊"
+        ).trim();
+      const fact =
+        String(finding?.fact || "").trim();
+      const relevance =
+        String(
+          finding?.relevance ||
+          finding?.possible_relevance ||
+          ""
+        ).trim();
+
+      lines.push(
+        `${index + 1}. ${date}｜${title}`
+      );
+
+      if (
+        fact &&
+        fact !== title
+      ) {
+        lines.push(`   ${fact}`);
+      }
+
+      if (relevance) {
+        lines.push(
+          `   與本場可能關係：${relevance}`
+        );
+      }
+    });
+
+    if (!lines.length && parsed?.summary) {
+      lines.push(
+        String(parsed.summary).trim()
+      );
+    }
+
+    if (parsed?.impact) {
+      lines.push(
+        `與本場可能關係：${
+          String(parsed.impact).trim()
+        }`
+      );
+    }
+
+    if (parsed?.notes) {
+      lines.push(
+        `補充：${String(parsed.notes).trim()}`
+      );
+    }
+
+    if (!lines.length) {
+      const fallback =
+        String(fallbackText || "")
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/\s*```$/i, "")
+          .trim();
+
+      if (
+        fallback &&
+        !/^\s*\{[\s\S]*\}\s*$/.test(fallback)
+      ) {
+        lines.push(fallback);
+      }
+    }
+
+    return lines
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 12000);
+  }
+
   async function scanExternalRisk(row, options = {}) {
     if (!isExternalRiskEligible(row)) {
       throw new Error(
@@ -1099,19 +1205,12 @@
 
     // manual_review 至少要有 findings、原始搜尋文字或來源。
     const rawSearchText =
-      String(
-        parsed.raw_summary ||
-        (
-          status === "manual_review"
-            ? (
-                parsed.summary ||
-                parsed.notes ||
-                answer
-              )
-            : answer
-        ) ||
-        ""
-      ).trim().slice(0, 12000);
+      status === "manual_review"
+        ? buildReadableRiskSummary(
+            parsed,
+            answer
+          )
+        : "";
 
     if (
       status === "manual_review" &&
