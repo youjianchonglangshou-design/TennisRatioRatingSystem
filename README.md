@@ -12,7 +12,7 @@ https://youjianchonglangshou-design.github.io/TennisRatioRatingSystem/
 - 按「重新抓取＋完整分析」重新取得 Pinnacle 賠率並完成全部分析。
 - 按「只重跑目前清單」保留既有比賽清單，只重新取得外部數據與計算評級。
 - 下載 `today_matches.json` 與 `ratio_analysis.json`。
-- 使用 Gemini 針對指定場次或整批清單進行問答。
+- 使用 Groq Compound 針對指定場次或整批清單進行問答。
 
 ---
 
@@ -28,7 +28,7 @@ modules/
 ├─ data-services.js
 ├─ analysis-engine.js
 ├─ renderer.js
-└─ gemini-client.js
+└─ groq-client.js
 
 ratio_config.json
 today_matches.json
@@ -47,7 +47,7 @@ README.md
 - 網頁骨架。
 - 頁首、操作按鈕、搜尋框、評級篩選膠囊。
 - 主表格。
-- Gemini 側邊欄。
+- Groq Compound 側邊欄。
 - 模型設定視窗。
 - JavaScript 載入順序。
 
@@ -58,7 +58,7 @@ pinnacle.js
 data-services.js
 analysis-engine.js
 renderer.js
-gemini-client.js
+groq-client.js
 app.js
 ```
 
@@ -77,7 +77,7 @@ app.js
 - All Levels／Main Tour 頁籤。
 - 六格評級資訊。
 - BO3 預測區塊。
-- Gemini 側邊欄與模型設定視窗。
+- Groq Compound 側邊欄與模型設定視窗。
 
 ---
 
@@ -94,7 +94,7 @@ app.js
 - 主表格排序、搜尋、篩選。
 - Hover 卡片顯示與定位。
 - JSON 下載。
-- Gemini 側邊欄控制。
+- Groq Compound 側邊欄控制。
 
 目前 `app.js` 需要設定：
 
@@ -177,7 +177,7 @@ Cloudflare R2 讀寫 Client
 
 ---
 
-### `modules/gemini-client.js`
+### `modules/groq-client.js`
 
 負責：
 
@@ -185,8 +185,8 @@ Cloudflare R2 讀寫 Client
 - 指定場次最多傳送 4 場完整資料。
 - 整批問題只傳送精簡欄位。
 - 保留最近 6 則對話。
-- 將問題傳給 Cloudflare Worker `/gemini`。
-- 接收 Gemini 回覆與 Google Search 來源。
+- 將問題傳給 Cloudflare Worker `/groq`。
+- 接收 Groq Compound 回覆與 Groq Web Search 來源。
 - 429／5xx／網路錯誤自動重試。
 
 ---
@@ -259,7 +259,7 @@ Cloudflare R2 / ratio_analysis.json
 │  ├─ 代理 TennisRatio
 │  ├─ 接收 JSON 上傳
 │  ├─ 讀寫 R2
-│  └─ 代理 Gemini
+│  └─ 代理 Groq Compound
 │
 └─ Cloudflare R2
    ├─ matchups.json
@@ -500,7 +500,7 @@ GitHub ratio_config.json
 3. 載入 source_bundle.json 健康狀態
 4. 載入 ratio_config.json
 5. renderer.js 建立主表格與 Hover 卡片
-6. 啟用搜尋、排序、篩選與 Gemini
+6. 啟用搜尋、排序、篩選與 Groq Compound
 ```
 
 若 R2 的 `today_matches.json` 或 `ratio_analysis.json` 無法讀取：
@@ -521,7 +521,7 @@ GitHub ratio_config.json
 Phase 2：Pinnacle
 Phase 3：外部資料
 Phase 4：分析引擎
-Phase 5：畫面與 Gemini
+Phase 5：畫面與 Groq Compound
 ```
 
 ## Phase 2：Pinnacle
@@ -590,7 +590,7 @@ markets
 2. renderer.js 產生表格
 3. 更新 A／B／C／淘汰數量
 4. 建立 Hover 完整分析卡
-5. Gemini 載入最新分析上下文
+5. Groq Compound 載入最新分析上下文
 ```
 
 ---
@@ -1636,14 +1636,14 @@ BO3 不使用隨機抽樣。
 
 ---
 
-# 28. Gemini 運作方式
+# 28. Groq Compound 運作方式
 
 ```text
 GitHub Pages
-→ POST /gemini
+→ POST /groq
 → Cloudflare Worker
-→ Worker Secret：GEMINI_API_KEY
-→ Google Gemini
+→ Worker Secret：GROQ_API_KEY
+→ Google Groq Compound
 → 回傳答案與搜尋來源
 ```
 
@@ -1679,7 +1679,7 @@ Berrettini 這場怎麼看？
 
 ## 外網使用
 
-Google Search 只用於查證：
+Groq Web Search 只用於查證：
 
 - 傷病。
 - 退賽。
@@ -1698,7 +1698,7 @@ D 值
 五項結果
 ```
 
-必須以 `ratio_analysis.json` 為準，Gemini 不得自行捏造。
+必須以 `ratio_analysis.json` 為準，Groq Compound 不得自行捏造。
 
 ---
 
@@ -1715,7 +1715,7 @@ R2 bucket：tennis-json
 
 ```text
 UPLOAD_TOKEN
-GEMINI_API_KEY
+GROQ_API_KEY
 ```
 
 `UPLOAD_TOKEN` 必須與 `app.js` 的 `WORKER_UPLOAD_TOKEN` 相同。
@@ -1906,7 +1906,7 @@ A 級
 B 級
 ```
 
-Gemini＋Google Search 負責查詢熱門方的：
+Groq Compound＋Groq Web Search 負責查詢熱門方的：
 
 - 近期傷病、疾病、醫療暫停。
 - 退賽、傷退與官方狀態。
@@ -1927,7 +1927,7 @@ Gemini＋Google Search 負責查詢熱門方的：
 ＝系統如何判斷
 ```
 
-即使 Gemini 無法確定資訊是否構成風險，只要已經取得搜尋內容或來源，就必須保存到：
+即使 Groq Compound 無法確定資訊是否構成風險，只要已經取得搜尋內容或來源，就必須保存到：
 
 ```text
 findings
@@ -1960,7 +1960,7 @@ sources
 - 全部不利資訊。
 - 事件日期。
 - 與本場的可能關係。
-- Gemini 搜尋整理。
+- Groq Compound 搜尋整理。
 - 查證來源。
 - 搜尋時間與可信度。
 
@@ -1987,7 +1987,7 @@ sources
 而且沒有找到值得呈現的近期異常或狀態資訊
 ```
 
-`clear` 必須具備 Google Search 搜尋紀錄。
+`clear` 必須具備 Groq Web Search 搜尋紀錄。
 
 若已找到具體資訊，就不能使用 `clear` 隱藏，必須改成：
 
@@ -2024,7 +2024,7 @@ manual_review
 - 搜尋到的全部資訊。
 - 日期與事件。
 - 與本場的可能關係。
-- Gemini 原始搜尋整理。
+- Groq Compound 原始搜尋整理。
 - 所有可用來源。
 - 系統為什麼沒有列為紅色風險。
 
@@ -2062,11 +2062,11 @@ manual_review
 
 可能原因：
 
-- Gemini 暫時達到使用量上限。
+- Groq Compound 暫時達到使用量上限。
 - 網路逾時。
 - 外部服務沒有回應。
 - 沒有取得可供人工判讀的搜尋內容。
-- Gemini 回覆無法整理，而且沒有可靠搜尋來源可保留。
+- Groq Compound 回覆無法整理，而且沒有可靠搜尋來源可保留。
 
 灰色 `↻`：
 
@@ -2102,7 +2102,7 @@ manual_review
 
 代表：
 
-- Gemini API Key 錯誤。
+- Groq Compound API Key 錯誤。
 - HTTP 401／403。
 - Cloudflare Worker 權限錯誤。
 - 系統驗證設定不完整。
@@ -2146,7 +2146,7 @@ manual_review
 
 ---
 
-## Gemini 判斷規則
+## Groq Compound 判斷規則
 
 ### 紅色 `!!` 門檻
 
@@ -2156,7 +2156,7 @@ manual_review
 可信度 ≥ 72%
 至少一項具體資訊
 至少一個 YYYY-MM-DD 日期
-至少一個 Google Search 來源
+至少一個 Groq Web Search 來源
 有風險摘要
 有本場影響說明
 ```
@@ -2210,7 +2210,7 @@ technical_error
 
 ### `raw_search_text`
 
-當 Gemini 找到資訊但無法完整分類時，保存原始搜尋整理，讓使用者仍能閱讀，不會被系統閘門擋掉。
+當 Groq Compound 找到資訊但無法完整分類時，保存原始搜尋整理，讓使用者仍能閱讀，不會被系統閘門擋掉。
 
 ---
 
@@ -2307,7 +2307,7 @@ Information-first
 灰色 `↻` 僅限於系統完全沒有取得可供閱讀的內容：
 
 ```text
-Gemini HTTP 429／使用量上限
+Groq Compound HTTP 429／使用量上限
 網路連線失敗
 連線逾時
 外部服務沒有回覆
@@ -2317,9 +2317,9 @@ Gemini HTTP 429／使用量上限
 以下情況不得再顯示灰色 `↻`：
 
 ```text
-Gemini 有回覆文字，但沒有 Google Search 來源
-Gemini 回覆不是指定結構
-Gemini 表示未發現風險，但沒有附上來源
+Groq Compound 有回覆文字，但沒有 Groq Web Search 來源
+Groq Compound 回覆不是指定結構
+Groq Compound 表示未發現風險，但沒有附上來源
 系統無法確定回覆是否足以構成風險
 ```
 
@@ -2337,7 +2337,7 @@ Gemini 表示未發現風險，但沒有附上來源
 
 ```text
 搜尋成功
-＋ 有 Google Search 查詢或來源紀錄
+＋ 有 Groq Web Search 查詢或來源紀錄
 ＋ 沒有任何值得呈現的近期資訊
 ```
 
@@ -2348,7 +2348,7 @@ status = clear
 → 不顯示圖示
 ```
 
-Gemini 回覆「沒有風險」但沒有來源時：
+Groq Compound 回覆「沒有風險」但沒有來源時：
 
 ```text
 不視為 clear
@@ -2400,7 +2400,7 @@ Arcadia matchups／markets
 Arcadia API
 365Scores
 TennisRatio
-Gemini／Google Search
+Groq Compound／Groq Web Search
 Cloudflare R2
 ```
 
@@ -2430,7 +2430,7 @@ Arcadia matchups／markets
 ```text
 365Scores
 TennisRatio
-Gemini／Google Search
+Groq Compound／Groq Web Search
 ```
 
 適合比賽與賠率清單不變，但需要重新分析球員數據和評級時使用。
@@ -2443,7 +2443,7 @@ Gemini／Google Search
 R2 ratio_analysis.json
 → R2 external_risk.json 六小時快取
 → 篩選尚未過期的 A／B 熱門方
-→ Gemini／Google Search 外部資訊覆核
+→ Groq Compound／Groq Web Search 外部資訊覆核
 → 更新 external_risk.json
 ```
 
@@ -2496,7 +2496,7 @@ source_bundle.json
 external_risk.json
 ```
 
-不會自動呼叫 Gemini。
+不會自動呼叫 Groq Compound。
 
 只有按下以下任一按鈕才會啟動外部風險分析：
 
@@ -2523,88 +2523,171 @@ ratio_analysis 已正確，只需要更新外部資訊
 
 ---
 
-# Hotfix 9｜Gemini 五組 Key 輪替與搜尋資訊清理
+---
 
-## Cloudflare Worker Gemini Key 池
+# Groq Compound 語言模型
 
-Worker 支援以下五個 Secret：
-
-```text
-GEMINI_API_KEY
-GEMINI_API_KEY_2
-GEMINI_API_KEY_3
-GEMINI_API_KEY_4
-GEMINI_API_KEY_5
-```
-
-原本的 Key 繼續放在：
+## 固定設定
 
 ```text
-GEMINI_API_KEY
+API URL
+https://api.groq.com/openai/v1/chat/completions
+
+模型
+groq/compound
+
+Cloudflare Worker Secret
+GROQ_API_KEY
 ```
 
-另外四組依序放在：
+`gsk_` 開頭的金鑰不得寫入：
 
 ```text
-GEMINI_API_KEY_2
-GEMINI_API_KEY_3
-GEMINI_API_KEY_4
-GEMINI_API_KEY_5
+app.js
+index.html
+GitHub
+README.md
 ```
 
-API Key 不可寫入 GitHub、app.js 或 README，只能儲存在 Cloudflare Worker 的 Secrets。
-
-## 輪替規則
+必須存放在 Cloudflare Worker 的加密 Secret：
 
 ```text
-目前 Key 成功
-→ 繼續使用目前 Key
-
-目前 Key 回傳 429／RESOURCE_EXHAUSTED
-→ 記錄等待時間
-→ 立即改用下一把 Key
-
-目前 Key 回傳 401／403／API_KEY_INVALID
-→ 暫停該 Key 一小時
-→ 改用下一把 Key
-
-所有 Key 都失敗
-→ 才把最後錯誤回傳前端
-→ 顯示灰色 ↻ 或頁首系統錯誤
+Workers & Pages
+→ tennis-json-store
+→ Settings
+→ Variables and secrets
+→ Add
+→ Secret
 ```
 
-Worker 回應會額外提供除錯 Header：
+名稱填：
 
 ```text
-X-TennisRatio-Gemini-Key-Pool
-X-TennisRatio-Gemini-Key-Slot
-X-TennisRatio-Gemini-Key-Attempts
-X-TennisRatio-Gemini-Key-Rotated
+GROQ_API_KEY
 ```
 
-這些 Header 只顯示使用第幾個槽位，不會洩露 API Key。
+Value 填入完整的 `gsk_...` 金鑰。
 
-## Google Cloud 專案限制
+---
 
-Gemini 額度是依 Google Cloud 專案計算，不是依單一 API Key 計算。
-
-因此：
+## 架構
 
 ```text
-五把 Key 都屬於同一個 Google Cloud 專案
-→ 共享同一份額度
-→ 第一把 429 時，其他四把通常也會 429
+GitHub Pages
+→ POST Cloudflare Worker /groq
+→ Cloudflare Worker 加入 GROQ_API_KEY
+→ POST https://api.groq.com/openai/v1/chat/completions
+→ groq/compound
+→ 回傳網頁
 ```
 
-要讓輪替真正增加可用額度：
+瀏覽器永遠不會直接取得 Groq API Key。
+
+---
+
+## Groq Compound 的用途
+
+`groq/compound` 會依問題自動決定是否使用內建工具，例如：
 
 ```text
-每把 Key 應來自不同 Google Cloud 專案
+Web Search
+Visit Website
+Code Execution
+Wolfram Alpha
 ```
 
-## 外部資訊卡顯示規則
+TennisRatio 使用它執行：
 
-舊版 R2 資料可能在 `raw_search_text` 保存整段 JSON，例如：
+```text
+網球分析問答
+熱門方外部風險搜尋
+傷病與退賽查證
+近期賽程與疲勞查證
+旅行與官方消息查證
+```
+
+---
+
+## 一般問答
+
+側邊欄固定顯示：
+
+```text
+TennisRatio Groq
+groq/compound
+```
+
+系統送出：
+
+```text
+system
+＝ TennisRatio 規則＋問題所需 JSON
+
+user
+＝ 使用者問題
+
+model
+＝ groq/compound
+```
+
+若 Compound 使用 Web Search，系統會整理：
+
+```text
+回答內容
+搜尋查詢
+引用來源
+executed_tools
+```
+
+並在回答下方顯示可解析的來源網址。
+
+---
+
+## 外部風險分析
+
+```text
+ratio_analysis.json
+→ 篩選未過期 A／B
+→ groq/compound
+→ 內建 Web Search
+→ external_risk.json
+```
+
+外部風險仍沿用五種狀態：
+
+```text
+risk_found
+→ 紅色 !!
+→ 明確不利資訊
+
+clear
+→ 無圖示
+→ 搜尋完成且沒有相關異常
+
+manual_review
+→ 灰藍色 i
+→ 有資訊，交給人類判讀
+
+search_incomplete
+→ 灰色 ↻
+→ 搜尋未完成，下次重試
+
+system_error
+→ 不標記球員
+→ 顯示在頁首
+```
+
+---
+
+## JSON 輸出
+
+外部風險要求 Groq 回傳：
+
+```text
+response_format = json_object
+```
+
+並由前端再次驗證：
 
 ```text
 status
@@ -2613,158 +2696,135 @@ confidence
 summary
 impact
 findings
+notes
+raw_summary
 ```
 
-畫面不再直接顯示這些欄位名稱、大括號、引號與逗號。
-
-新版會轉換成：
+若 Groq 有回覆資訊但格式無法直接使用：
 
 ```text
-1. 2026-08-02｜近期健康或賽程資訊
-   事件內容
-   與本場可能關係：……
-
-2. 2026-07-30｜上一場比賽資訊
-   事件內容
+先執行一次格式修復
+→ 修復成功：正常分類
+→ 修復失敗但有可讀資訊：manual_review
+→ 完全沒有內容：search_incomplete
 ```
 
-保留：
-
-```text
-日期
-事件
-事實
-與本場的可能關係
-補充說明
-```
-
-移除：
-
-```text
-JSON 大括號
-status
-severity
-confidence
-欄位名稱
-引號與程式碼格式
-```
-
-舊的 `external_risk.json` 不需要重建，前端讀取時會自動清理。
-新產生的 `raw_search_text` 也會直接保存成人類可讀文字。
+資訊不能因格式問題被隱藏。
 
 ---
 
-# Hotfix 10｜Gemini 模型自動選擇
+## API Key 輪替（選用）
 
-## 發生原因
-
-若 Gemini 回傳：
+Worker 同時支援：
 
 ```text
-HTTP 404
-This model is no longer available to new users
+GROQ_API_KEY
+GROQ_API_KEY_2
+GROQ_API_KEY_3
+GROQ_API_KEY_4
+GROQ_API_KEY_5
 ```
 
-代表指定模型已停止向目前這組 API Key／新使用者提供。
-
-這不是：
+目前只有一把金鑰時，只設定：
 
 ```text
-API Key 額度不足
-Token 不足
-Cloudflare R2 問題
+GROQ_API_KEY
 ```
 
-增加 API Key 無法修復「模型已停用」；必須改用仍可用的模型。
+即可。
 
-## 新版模型設定
-
-前端模型改成：
+遇到：
 
 ```text
-auto
+HTTP 429
+→ 暫停目前 Key
+→ 嘗試下一把
+
+HTTP 401／403
+→ 暫停失效 Key
+→ 嘗試下一把
 ```
 
-Cloudflare Worker 收到請求後會：
+---
+
+## 三個按鈕
 
 ```text
-1. 使用 API Key 查詢 models 清單
-2. 只保留支援 generateContent 的 Gemini 模型
-3. 優先選擇 Flash
-4. 優先選擇較新版本
-5. 快取選擇結果 15 分鐘
-6. 實際呼叫可用模型
+重新抓取＋完整分析
+→ Arcadia
+→ today_matches
+→ 365Scores／TennisRatio
+→ ratio_analysis
+→ Groq 外部風險
+
+只重跑目前清單
+→ R2 today_matches
+→ 365Scores／TennisRatio
+→ ratio_analysis
+→ Groq 外部風險
+
+分析風險
+→ R2 ratio_analysis
+→ Groq 外部風險
 ```
 
-## 舊設定自動遷移
+只有「分析風險」不會重新抓取 Arcadia、365Scores 或 TennisRatio。
 
-瀏覽器 localStorage 若仍保存：
+---
+
+## 舊 Gemini 設定
+
+Groq 版不再使用：
 
 ```text
-gemini-2.5-flash
-gemini-2.5-flash-latest
+GEMINI_API_KEY
+GEMINI_API_KEY_2～5
+Gemini 模型自動選擇
+Google generateContent API
 ```
 
-會自動轉成：
+確認 Groq 正常後，可從 Cloudflare Worker 刪除舊的 Gemini Secrets。
+
+瀏覽器若保存舊模型設定，Groq 版會保留原本自訂系統提示詞，但模型固定改成：
 
 ```text
-auto
+groq/compound
 ```
 
-不需要手動清除瀏覽器資料。
-
-## 模型失效時
-
-```text
-指定模型回傳 404／no longer available
-→ 同一把 API Key 立即改試 models 清單中的下一個 Flash 模型
-```
-
-模型和 Key 的輪替分開處理：
-
-```text
-模型 404／不相容
-→ 換模型，不換 Key
-
-HTTP 429／RESOURCE_EXHAUSTED
-→ 換 API Key
-
-HTTP 401／403／API_KEY_INVALID
-→ 跳過失效 Key
-```
-
-## 模型設定畫面
-
-建議保持：
-
-```text
-auto
-```
-
-成功回答後，Gemini 側邊欄會顯示：
-
-```text
-自動｜實際使用的模型名稱
-```
+---
 
 ## Worker Health
 
-`/health` 新增：
+開啟：
+
+```text
+https://tennis-json-store.youjianchonglangshou.workers.dev/health
+```
+
+應看到類似：
 
 ```json
 {
-  "gemini_model_auto_select": true,
-  "gemini_model_cache_minutes": 15
+  "ai_provider": "Groq",
+  "groq_proxy": true,
+  "groq_model": "groq/compound",
+  "groq_key_pool": 1,
+  "groq_key_rotation": true,
+  "groq_compound_web_search": true
 }
 ```
 
-## Worker 回應 Header
+---
+
+## 版本
 
 ```text
-X-TennisRatio-Gemini-Requested-Model
-X-TennisRatio-Gemini-Model
-X-TennisRatio-Gemini-Model-Attempts
+TennisRatio Groq Compound v1
 ```
 
-不包含 API Key。
+最後更新：
+
+```text
+2026-08-03（Asia/Taipei）
+```
 

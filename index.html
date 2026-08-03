@@ -2,17 +2,17 @@
 
 <html lang="zh-Hant"><head><meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<title>TennisRatioRatingSystem｜Phase 4 Hotfix 1</title><link href="./styles.css?v=external-risk-v1-hotfix6" rel="stylesheet"/></head>
+<title>TennisRatio｜Groq Compound</title><link href="./styles.css?v=groq-compound-v1" rel="stylesheet"/></head>
 <body data-analysis-ready="0" data-revision="0" data-runtime="github-pages-phase3-source-pipeline">
 <div class="app-shell" id="app-shell">
 <aside aria-hidden="true" class="chat-drawer" id="chat-drawer">
 <div class="chat-inner">
 <div class="chat-head">
-<div class="chat-head-main"><h2>✦ TennisRatio Gemini</h2><small id="chat-model-label">自動選擇可用 Flash</small></div>
+<div class="chat-head-main"><h2>✦ TennisRatio Groq</h2><small id="chat-model-label">groq/compound</small></div>
 <div class="chat-head-actions"><button class="chat-icon" id="chat-new" title="新對話" type="button">＋</button><button class="chat-icon" id="chat-settings" title="模型設定" type="button">⚙</button><button aria-label="關閉" class="chat-icon" id="chat-close" type="button">×</button></div>
 </div>
 <div class="chat-context"><i></i><span id="chat-context-text">分析資料載入中｜單場問題只傳相關場次，不傳整份巢狀 JSON</span></div>
-<div aria-live="polite" class="chat-log" id="chat-log"><div class="chat-welcome" id="chat-welcome"><strong>網球賽事分析已就緒</strong>可詢問指定項次、球員、傷病、近期賽程或整批排行。需要即時資訊時會使用 Google Search，並在回答下方列出來源。</div></div>
+<div aria-live="polite" class="chat-log" id="chat-log"><div class="chat-welcome" id="chat-welcome"><strong>網球賽事分析已就緒</strong>可詢問指定項次、球員、傷病、近期賽程或整批排行。需要即時資訊時會使用 Groq Compound 內建 Web Search，並在回答下方列出來源。</div></div>
 <div class="chat-composer"><textarea class="chat-input" id="chat-input" placeholder="例如：項次3是否有傷病、退賽或近期疲勞風險？"></textarea><div class="chat-actions"><span class="chat-actions-note">Enter 傳送｜Shift+Enter 換行</span><button class="control chat-send" id="chat-send" type="button">送出</button></div></div>
 </div>
 </aside>
@@ -23,7 +23,7 @@
 <div class="time-stack" title="Asia/Taipei"><div class="generated pinnacle-time"><span>Pinnacle抓取：</span><b id="pinnacle-time-value">讀取中</b></div><div class="generated"><span>更新時間：</span><b id="updated-time-value">讀取中</b></div></div>
 </header>
 <section aria-label="操作列" class="controls">
-<button class="control gemini-toggle" id="chat-toggle" title="分析資料已載入，可開啟Gemini問答" type="button">✦ Gemini</button>
+<button class="control groq-toggle" id="chat-toggle" title="分析資料已載入，可開啟Groq問答" type="button">✦ Groq</button>
 <button class="control run-button" data-mode="full" type="button">重新抓取＋完整分析</button>
 <button class="control run-button" data-mode="reanalyze" type="button">只重跑目前清單</button>
 <button class="control run-button" data-mode="risk" type="button">分析風險</button>
@@ -43,11 +43,11 @@
 <div class="wrap"><table class="main"><thead><tr><th data-type="number">項次</th><th>日期時間</th><th>比賽資訊</th><th class="copy-head" data-nosort="true" title="複製日期與對戰"><svg aria-hidden="true" class="copy-icon copy-head-icon" focusable="false" viewbox="0 0 24 24"><rect height="12" rx="2.4" width="12" x="8" y="8"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></th><th class="home-player-head">主場</th><th class="away-player-head">客場</th><th data-type="number">熱門方賠率</th><th data-type="number">賠轉勝率</th><th data-type="number">評級勝率</th><th data-type="number">評級EV</th><th data-type="number">評級</th></tr></thead><tbody><tr class="dynamic-loading-row"><td colspan="11">正在由 app.js 讀取 ratio_analysis.json 並建立表格……</td></tr></tbody></table><div class="empty-filter" id="empty-filter">目前沒有可顯示的比賽；可按上方按鈕重新抓取。</div></div>
 </main>
 </div>
-<dialog class="settings-dialog" id="gemini-settings-dialog">
-<form class="settings-card" id="gemini-settings-form" method="dialog">
-<div class="settings-head"><div><h2>模型設定</h2><p>Gemini API Key 由 Cloudflare Worker Secret 管理；此處只調整模型與系統提示詞。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
-<label class="settings-field"><span>模型名稱</span><input id="gemini-model" type="text" value="auto" placeholder="auto"/><small>建議保持 auto，由 Cloudflare Worker 自動選擇目前可用的 Flash 模型。</small></label>
-<label class="settings-field"><span>系統提示詞</span><textarea id="gemini-system-prompt"></textarea><small>Temperature 固定為 0，不提供調整。</small></label>
+<dialog class="settings-dialog" id="groq-settings-dialog">
+<form class="settings-card" id="groq-settings-form" method="dialog">
+<div class="settings-head"><div><h2>模型設定</h2><p>Groq API Key 由 Cloudflare Worker Secret 管理；模型固定為 groq/compound，此處可調整系統提示詞。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
+<label class="settings-field"><span>模型名稱</span><input id="groq-model" type="text" value="groq/compound" readonly/><small>固定使用 Groq Compound；內建 Web Search 會由模型依問題自動執行。</small></label>
+<label class="settings-field"><span>系統提示詞</span><textarea id="groq-system-prompt"></textarea><small>只調整 TennisRatio 回答規則；Groq Compound 會自行管理推理與工具使用。</small></label>
 <div class="settings-actions"><span class="settings-status" id="settings-status"></span><button class="control" id="settings-cancel" type="button">取消</button><button class="control" type="submit">儲存設定</button></div>
 </form>
 </dialog>
@@ -63,4 +63,4 @@
 <button class="analysis-toast-close" id="analysis-toast-close" type="button" aria-label="關閉通知">×</button>
 </div>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=external-risk-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/gemini-client.js?v=external-risk-v1-hotfix10"></script><script defer src="./app.js?v=external-risk-v1-hotfix10"></script></body></html>
+<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=external-risk-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/groq-client.js?v=groq-compound-v1"></script><script defer src="./app.js?v=groq-compound-v1"></script></body></html>
