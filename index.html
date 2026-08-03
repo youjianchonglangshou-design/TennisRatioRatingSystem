@@ -2,7 +2,7 @@
 
 <html lang="zh-Hant"><head><meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<title>TennisRatioRatingSystem｜Phase 4 Hotfix 1</title><link href="./styles.css?v=external-risk-v1" rel="stylesheet"/></head>
+<title>TennisRatioRatingSystem｜Phase 4 Hotfix 1</title><link href="./styles.css?v=external-risk-v1-hotfix3" rel="stylesheet"/></head>
 <body data-analysis-ready="0" data-revision="0" data-runtime="github-pages-phase3-source-pipeline">
 <div class="app-shell" id="app-shell">
 <aside aria-hidden="true" class="chat-drawer" id="chat-drawer">
@@ -31,10 +31,13 @@
 <span class="toolbar-spacer"></span>
 <button class="download" id="download-pinnacle" type="button">下載Pinnacle JSON</button>
 <button class="download" id="download-ratio" type="button">下載Ratio JSON</button>
+<button class="download" id="download-risk" type="button">下載風險 JSON</button>
 </section>
 <div class="status-line" id="job-status" role="status">
 <span class="status-dot"></span><span id="status-text">正在載入 R2 ratio_analysis.json、today_matches.json 與 source_bundle.json……</span>
-<span class="risk-status" id="risk-status">外部風險：待命</span><span class="visible-count" id="visible-count">顯示 0／0 場</span>
+<span class="risk-status" id="risk-status">外部風險：待命</span>
+<span class="risk-cache-status" id="risk-cache-status">風險更新：尚無資料</span>
+<span class="visible-count" id="visible-count">顯示 0／0 場</span>
 </div>
 <div class="wrap"><table class="main"><thead><tr><th data-type="number">項次</th><th>日期時間</th><th>比賽資訊</th><th class="copy-head" data-nosort="true" title="複製日期與對戰"><svg aria-hidden="true" class="copy-icon copy-head-icon" focusable="false" viewbox="0 0 24 24"><rect height="12" rx="2.4" width="12" x="8" y="8"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></th><th class="home-player-head">主場</th><th class="away-player-head">客場</th><th data-type="number">熱門方賠率</th><th data-type="number">賠轉勝率</th><th data-type="number">評級勝率</th><th data-type="number">評級EV</th><th data-type="number">評級</th></tr></thead><tbody><tr class="dynamic-loading-row"><td colspan="11">正在由 app.js 讀取 ratio_analysis.json 並建立表格……</td></tr></tbody></table><div class="empty-filter" id="empty-filter">目前沒有可顯示的比賽；可按上方按鈕重新抓取。</div></div>
 </main>
@@ -53,5 +56,10 @@
 <div id="risk-dialog-body"></div>
 </div>
 </dialog>
+<div class="analysis-toast" id="analysis-toast" hidden role="status" aria-live="polite">
+<div class="analysis-toast-mark">✓</div>
+<div class="analysis-toast-content"><strong id="analysis-toast-title">分析完成</strong><span id="analysis-toast-body"></span></div>
+<button class="analysis-toast-close" id="analysis-toast-close" type="button" aria-label="關閉通知">×</button>
+</div>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=external-risk-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/gemini-client.js?v=external-risk-v1-hotfix1"></script><script defer src="./app.js?v=external-risk-v1"></script></body></html>
+<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=external-risk-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/gemini-client.js?v=external-risk-v1-hotfix3"></script><script defer src="./app.js?v=external-risk-v1-hotfix3"></script></body></html>

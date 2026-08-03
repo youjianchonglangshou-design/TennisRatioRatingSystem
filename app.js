@@ -29,6 +29,8 @@
 
   const DATA_BASE_URL = ".";
   const CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
+  const EXTERNAL_RISK_CACHE_HOURS = 6;
+  const ANALYSIS_TOAST_DURATION_MS = 18000;
   const DEFAULT_TENNIS_PROMPT = "你是 TennisRatio 網球賽事分析助理。使用繁體中文，回答清楚、精確、可覆盤。以系統提供的 Pinnacle 與 ratio_analysis.json 為主要依據，不捏造賠率、勝率、評級、D值或五項比較。外網只用於查證傷病、退賽、近期賽程、旅行疲勞與官方消息；使用外網時列出資料來源。區分「較可能獲勝」與「目前賠率是否值得下注」，不要承諾獲利。";
 
   const state = {
@@ -47,7 +49,11 @@
     externalRisk: null,
     riskScanning: false,
     riskScanTimer: null,
-    riskScanGeneration: 0
+    riskScanGeneration: 0,
+    riskCountdownTimer: null,
+    toastTimer: null,
+    completionNotificationPending: false,
+    completionNotificationMode: null
   };
 
   const elements = {
@@ -70,11 +76,17 @@
     settingsDialog: document.getElementById("gemini-settings-dialog"),
     downloadPinnacle: document.getElementById("download-pinnacle"),
     downloadRatio: document.getElementById("download-ratio"),
+    downloadRisk: document.getElementById("download-risk"),
     riskStatus: document.getElementById("risk-status"),
+    riskCacheStatus: document.getElementById("risk-cache-status"),
     riskDialog: document.getElementById("external-risk-dialog"),
     riskDialogTitle: document.getElementById("risk-dialog-title"),
     riskDialogSubtitle: document.getElementById("risk-dialog-subtitle"),
-    riskDialogBody: document.getElementById("risk-dialog-body")
+    riskDialogBody: document.getElementById("risk-dialog-body"),
+    analysisToast: document.getElementById("analysis-toast"),
+    analysisToastTitle: document.getElementById("analysis-toast-title"),
+    analysisToastBody: document.getElementById("analysis-toast-body"),
+    analysisToastClose: document.getElementById("analysis-toast-close")
   };
 
   function taiwanTimeText(value) {
@@ -98,6 +110,291 @@
       parts.filter(part => part.type !== "literal").map(part => [part.type, part.value])
     );
     return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
+  }
+
+
+  function taipeiIsoText(value = Date.now()) {
+    const date = value instanceof Date
+      ? value
+      : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Taipei",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+      })
+        .formatToParts(date)
+        .filter(part => part.type !== "literal")
+        .map(part => [part.type, part.value])
+    );
+
+    return (
+      `${parts.year}-${parts.month}-${parts.day}` +
+      `T${parts.hour}:${parts.minute}:${parts.second}+08:00`
+    );
+  }
+
+  function addHoursIso(value, hours) {
+    const time = Date.parse(String(value || ""));
+    if (!Number.isFinite(time)) return null;
+    return taipeiIsoText(
+      time + Number(hours || 0) * 3600000
+    );
+  }
+
+  function riskCompletedAt() {
+    return (
+      state.externalRisk?.last_completed_at_taiwan ||
+      state.externalRisk?.generated_at_taiwan ||
+      null
+    );
+  }
+
+  function riskNextRefreshAt() {
+    return (
+      state.externalRisk?.next_refresh_at_taiwan ||
+      addHoursIso(
+        riskCompletedAt(),
+        EXTERNAL_RISK_CACHE_HOURS
+      )
+    );
+  }
+
+  function remainingTimeText(targetValue) {
+    const target = Date.parse(String(targetValue || ""));
+    if (!Number.isFinite(target)) return "時間未知";
+
+    const remaining = target - Date.now();
+    if (remaining <= 0) return "可重新掃描";
+
+    const totalMinutes = Math.ceil(remaining / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    return hours > 0
+      ? `${hours}小時${minutes}分`
+      : `${minutes}分鐘`;
+  }
+
+  function updateRiskCacheStatus() {
+    if (!elements.riskCacheStatus) return;
+
+    elements.riskCacheStatus.className =
+      "risk-cache-status";
+
+    if (state.riskScanning) {
+      const completedAt = riskCompletedAt();
+      elements.riskCacheStatus.textContent =
+        completedAt
+          ? `上次完成 ${taiwanTimeText(completedAt)}｜本次掃描中`
+          : "風險更新：首次掃描中";
+      elements.riskCacheStatus.classList.add("scanning");
+      return;
+    }
+
+    const completedAt = riskCompletedAt();
+    const nextRefreshAt = riskNextRefreshAt();
+
+    if (!completedAt || !nextRefreshAt) {
+      elements.riskCacheStatus.textContent =
+        "風險更新：尚無完成資料";
+      return;
+    }
+
+    const expired =
+      Date.parse(nextRefreshAt) <= Date.now();
+
+    elements.riskCacheStatus.textContent =
+      `風險更新 ${taiwanTimeText(completedAt)}` +
+      `｜下次 ${remainingTimeText(nextRefreshAt)}`;
+
+    elements.riskCacheStatus.classList.add(
+      expired ? "expired" : "fresh"
+    );
+  }
+
+  function startRiskCountdownClock() {
+    if (state.riskCountdownTimer !== null) {
+      clearInterval(state.riskCountdownTimer);
+    }
+    updateRiskCacheStatus();
+    state.riskCountdownTimer = setInterval(
+      updateRiskCacheStatus,
+      30000
+    );
+  }
+
+  function hideAnalysisToast() {
+    if (state.toastTimer !== null) {
+      clearTimeout(state.toastTimer);
+      state.toastTimer = null;
+    }
+    if (elements.analysisToast) {
+      elements.analysisToast.hidden = true;
+      elements.analysisToast.className =
+        "analysis-toast";
+    }
+  }
+
+  function showAnalysisToast(
+    title,
+    message,
+    tone = "success"
+  ) {
+    if (!elements.analysisToast) return;
+
+    hideAnalysisToast();
+    elements.analysisToastTitle.textContent =
+      String(title || "分析完成");
+    elements.analysisToastBody.textContent =
+      String(message || "");
+    elements.analysisToast.className =
+      `analysis-toast ${tone === "success" ? "" : tone}`.trim();
+    elements.analysisToast.hidden = false;
+
+    state.toastTimer = setTimeout(
+      hideAnalysisToast,
+      ANALYSIS_TOAST_DURATION_MS
+    );
+  }
+
+  async function prepareCompletionNotification(mode) {
+    state.completionNotificationPending = true;
+    state.completionNotificationMode = mode;
+
+    if (
+      "Notification" in window &&
+      Notification.permission === "default"
+    ) {
+      try {
+        await Notification.requestPermission();
+      } catch (error) {
+        console.info("通知權限未取得。", error);
+      }
+    }
+  }
+
+  function sendSystemNotification(title, body) {
+    if (
+      !("Notification" in window) ||
+      Notification.permission !== "granted"
+    ) {
+      return;
+    }
+
+    try {
+      const notification = new Notification(title, {
+        body,
+        tag: "tennisratio-analysis-complete",
+        renotify: true
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch (error) {
+      console.info("系統通知建立失敗。", error);
+    }
+  }
+
+  function clearPendingCompletionNotification() {
+    state.completionNotificationPending = false;
+    state.completionNotificationMode = null;
+  }
+
+  function notifyWholeAnalysisComplete({
+    usedCache = false,
+    failed = false
+  } = {}) {
+    if (!state.completionNotificationPending) return;
+
+    const rows = eligibleRiskRows();
+    const entries = Array.isArray(
+      state.externalRisk?.entries
+    )
+      ? state.externalRisk.entries
+      : [];
+    const entryMap = new Map(
+      entries.map(entry => [
+        String(entry?.match_key || ""),
+        entry
+      ])
+    );
+
+    let riskCount = 0;
+    let unknownCount = 0;
+
+    for (const row of rows) {
+      const entry = entryMap.get(
+        geminiClient.externalRiskMatchKey(row)
+      );
+      if (entry?.status === "risk_found") {
+        riskCount += 1;
+      }
+      if (
+        ["insufficient", "failed"].includes(
+          entry?.status
+        )
+      ) {
+        unknownCount += 1;
+      }
+    }
+
+    const modeText =
+      state.completionNotificationMode === "full"
+        ? "重新抓取＋完整分析"
+        : "目前清單重跑";
+    const cacheText = usedCache
+      ? "外部風險直接沿用 R2 六小時快取。"
+      : "外部風險已完成並寫入 R2。";
+    const message =
+      `${modeText}完成｜A/B ${rows.length}場` +
+      `｜警示 ${riskCount}` +
+      `｜待確認 ${unknownCount}。${cacheText}`;
+    const tone =
+      failed || unknownCount
+        ? "warning"
+        : "success";
+
+    showAnalysisToast(
+      failed
+        ? "分析完成，但外部風險有待確認"
+        : "TennisRatio 全部分析完成",
+      message,
+      tone
+    );
+
+    sendSystemNotification(
+      failed
+        ? "TennisRatio 完成｜部分風險待確認"
+        : "TennisRatio 全部分析完成",
+      message
+    );
+
+    clearPendingCompletionNotification();
+  }
+
+  function notifyPipelineFailure(error) {
+    const message =
+      error?.message || String(error);
+
+    showAnalysisToast(
+      "TennisRatio 分析失敗",
+      message,
+      "error"
+    );
+    sendSystemNotification(
+      "TennisRatio 分析失敗",
+      message
+    );
+    clearPendingCompletionNotification();
   }
 
   async function fetchJson(path) {
@@ -222,27 +519,64 @@
     const rows = eligibleRiskRows();
     const map = riskEntryMap();
     const entries = [];
+
     for (const row of rows) {
-      const entry = map.get(geminiClient.externalRiskMatchKey(row));
+      const entry = map.get(
+        geminiClient.externalRiskMatchKey(row)
+      );
       if (entry) entries.push(entry);
     }
+
     const completed = entries.filter(entry => [
-      "risk_found", "clear", "insufficient", "failed"
+      "risk_found",
+      "clear",
+      "insufficient",
+      "failed"
     ].includes(String(entry?.status || ""))).length;
+
+    const updatedAt = taipeiIsoText();
+    const previousCompletedAt =
+      state.externalRisk?.last_completed_at_taiwan ||
+      null;
+    const lastCompletedAt =
+      scanStatus === "complete"
+        ? updatedAt
+        : previousCompletedAt;
+    const nextRefreshAt = lastCompletedAt
+      ? addHoursIso(
+          lastCompletedAt,
+          EXTERNAL_RISK_CACHE_HOURS
+        )
+      : null;
+
     return {
-      version: "external-risk-v1",
-      generated_at_taiwan: new Date().toISOString(),
-      analysis_generated_at: state.analysis?.generated_at_taiwan ?? null,
+      version: "external-risk-v1.1-six-hour-cache",
+      generated_at_taiwan: updatedAt,
+      updated_at_taiwan: updatedAt,
+      last_completed_at_taiwan: lastCompletedAt,
+      next_refresh_at_taiwan: nextRefreshAt,
+      cache_hours: EXTERNAL_RISK_CACHE_HOURS,
+      cache_policy:
+        "同一 match_key、熱門方與評級在 6 小時內直接沿用 R2，不重新呼叫 Gemini。",
+      analysis_generated_at:
+        state.analysis?.generated_at_taiwan ?? null,
       scan_status: scanStatus,
       scan_total: rows.length,
       scan_completed: completed,
-      risk_found_count: entries.filter(item => item?.status === "risk_found").length,
-      insufficient_count: entries.filter(item => ["insufficient", "failed"].includes(item?.status)).length,
+      risk_found_count: entries.filter(
+        item => item?.status === "risk_found"
+      ).length,
+      insufficient_count: entries.filter(
+        item => ["insufficient", "failed"].includes(
+          item?.status
+        )
+      ).length,
       entries
     };
   }
 
   function updateRiskStatus() {
+    updateRiskCacheStatus();
     if (!elements.riskStatus) return;
     const rows = eligibleRiskRows();
     const map = riskEntryMap();
@@ -397,7 +731,12 @@
     const token = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
     const documentData = buildExternalRiskDocument(scanStatus);
     state.externalRisk = documentData;
-    await r2Client.uploadExternalRisk(WORKER_URL, token, documentData);
+    updateRiskCacheStatus();
+    await r2Client.uploadExternalRisk(
+      WORKER_URL,
+      token,
+      documentData
+    );
     return documentData;
   }
 
@@ -412,77 +751,189 @@
   }
 
   async function startExternalRiskScan() {
-    if (state.riskScanning || !state.analysis?.matches) return;
+    if (
+      state.riskScanning ||
+      !state.analysis?.matches
+    ) {
+      return;
+    }
+
     const generation = state.riskScanGeneration;
     const rows = eligibleRiskRows();
-    if (!rows.length) { updateRiskStatus(); return; }
-    const existingEntries = Array.isArray(state.externalRisk?.entries) ? state.externalRisk.entries : [];
-    const oldMap = new Map(existingEntries.map(entry => [String(entry?.match_key || ""), entry]));
-    const staleRows = rows.filter(row => !geminiClient.isRiskCacheFresh(oldMap.get(geminiClient.externalRiskMatchKey(row)), row));
-    if (!staleRows.length) { updateRiskStatus(); return; }
+
+    if (!rows.length) {
+      updateRiskStatus();
+      notifyWholeAnalysisComplete({
+        usedCache: true
+      });
+      return;
+    }
+
+    const existingEntries = Array.isArray(
+      state.externalRisk?.entries
+    )
+      ? state.externalRisk.entries
+      : [];
+    const oldMap = new Map(
+      existingEntries.map(entry => [
+        String(entry?.match_key || ""),
+        entry
+      ])
+    );
+    const staleRows = rows.filter(row =>
+      !geminiClient.isRiskCacheFresh(
+        oldMap.get(
+          geminiClient.externalRiskMatchKey(row)
+        ),
+        row
+      )
+    );
+
+    if (!staleRows.length) {
+      updateRiskStatus();
+      notifyWholeAnalysisComplete({
+        usedCache: true
+      });
+      return;
+    }
 
     let workerToken;
     try {
-      workerToken = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
+      workerToken = configurationValue(
+        WORKER_UPLOAD_TOKEN,
+        "WORKER_UPLOAD_TOKEN"
+      );
     } catch (error) {
       console.error(error);
       for (const row of staleRows) {
-        const match = geminiClient.compactRiskMatch(row);
-        const entry = { ...match, status: "failed", severity: "unknown", confidence: 0, summary: "缺少 Worker Token，外部風險未執行。", impact: "", evidence: [], notes: error.message, sources: [], checked_at: new Date().toISOString(), model: geminiSettings.model };
+        const match =
+          geminiClient.compactRiskMatch(row);
+        const entry = {
+          ...match,
+          status: "failed",
+          severity: "unknown",
+          confidence: 0,
+          summary:
+            "缺少 Worker Token，外部風險未執行。",
+          impact: "",
+          evidence: [],
+          notes: error.message,
+          sources: [],
+          checked_at: new Date().toISOString(),
+          model: geminiSettings.model
+        };
         mergeRiskEntry(entry);
         refreshRiskSlot(row?.["項次"], entry);
       }
       updateRiskStatus();
+      notifyWholeAnalysisComplete({
+        usedCache: false,
+        failed: true
+      });
       return;
     }
 
     state.riskScanning = true;
     updateRiskStatus();
+
+    let scanFailed = false;
+
     try {
-      const result = await geminiClient.scanExternalRisks(rows, {
-        existingEntries,
-        workerUrl: WORKER_URL,
-        workerToken,
-        model: geminiSettings.model,
-        delayMs: 1400,
-        onPending: async row => {
-          if (generation !== state.riskScanGeneration) {
-            throw new Error("RISK_SCAN_SUPERSEDED");
+      const result =
+        await geminiClient.scanExternalRisks(
+          rows,
+          {
+            existingEntries,
+            workerUrl: WORKER_URL,
+            workerToken,
+            model: geminiSettings.model,
+            delayMs: 1400,
+            onPending: async row => {
+              if (
+                generation !==
+                state.riskScanGeneration
+              ) {
+                throw new Error(
+                  "RISK_SCAN_SUPERSEDED"
+                );
+              }
+              refreshRiskSlot(
+                row?.["項次"],
+                {
+                  status: "pending",
+                  item: row?.["項次"]
+                }
+              );
+            },
+            onEntry: async (entry, progress) => {
+              if (
+                generation !==
+                state.riskScanGeneration
+              ) {
+                throw new Error(
+                  "RISK_SCAN_SUPERSEDED"
+                );
+              }
+
+              mergeRiskEntry(entry);
+              refreshRiskSlot(entry.item, entry);
+              updateRiskStatus();
+
+              try {
+                await persistExternalRisk("running");
+              } catch (error) {
+                console.error(
+                  "external_risk 暫存失敗",
+                  error
+                );
+              }
+
+              elements.statusText.textContent =
+                `外部風險覆核｜已完成 ` +
+                `${progress.completed}/${progress.total}` +
+                `｜熱門方 ${entry.hot_player}` +
+                `｜${riskStatusLabel(entry)}`;
+            },
+            onProgress: updateRiskStatus
           }
-          refreshRiskSlot(row?.["項次"], {
-            status: "pending",
-            item: row?.["項次"]
-          });
-        },
-        onEntry: async (entry, progress) => {
-          if (generation !== state.riskScanGeneration) {
-            throw new Error("RISK_SCAN_SUPERSEDED");
-          }
-          mergeRiskEntry(entry);
-          refreshRiskSlot(entry.item, entry);
-          updateRiskStatus();
-          try { await persistExternalRisk("running"); } catch (error) { console.error("external_risk 暫存失敗", error); }
-          elements.statusText.textContent = `外部風險覆核｜已完成 ${progress.completed}/${progress.total}｜熱門方 ${entry.hot_player}｜${riskStatusLabel(entry)}`;
-        },
-        onProgress: updateRiskStatus
-      });
-      if (generation !== state.riskScanGeneration) {
+        );
+
+      if (
+        generation !== state.riskScanGeneration
+      ) {
         throw new Error("RISK_SCAN_SUPERSEDED");
       }
+
       for (const entry of result.entries) {
         mergeRiskEntry(entry);
         refreshRiskSlot(entry.item, entry);
       }
+
       await persistExternalRisk("complete");
     } catch (error) {
-      if (error?.message !== "RISK_SCAN_SUPERSEDED") {
-        console.error("外部風險掃描發生未預期錯誤", error);
-        elements.statusText.textContent = `外部風險掃描錯誤：${error.message}`;
+      if (
+        error?.message !==
+        "RISK_SCAN_SUPERSEDED"
+      ) {
+        scanFailed = true;
+        console.error(
+          "外部風險掃描發生未預期錯誤",
+          error
+        );
+        elements.statusText.textContent =
+          `外部風險掃描錯誤：${error.message}`;
       }
     } finally {
-      if (generation === state.riskScanGeneration) {
+      if (
+        generation === state.riskScanGeneration
+      ) {
         state.riskScanning = false;
         updateRiskStatus();
+
+        notifyWholeAnalysisComplete({
+          usedCache: false,
+          failed: scanFailed
+        });
       }
     }
   }
@@ -528,18 +979,38 @@
 
   async function downloadCurrentJson(kind) {
     const isPinnacle = kind === "pinnacle";
+    const isRisk = kind === "risk";
     const filename = isPinnacle
       ? "today_matches.json"
-      : "ratio_analysis.json";
+      : (
+          isRisk
+            ? "external_risk.json"
+            : "ratio_analysis.json"
+        );
 
     try {
-      const data = isPinnacle
-        ? (state.today || await fetchLatestTodayMatches())
-        : (state.analysis || await fetchLatestAnalysis());
+      let data;
 
       if (isPinnacle) {
+        data =
+          state.today ||
+          await fetchLatestTodayMatches();
         updateTodayState(data);
+      } else if (isRisk) {
+        data =
+          state.externalRisk ||
+          await fetchLatestExternalRisk();
+        if (!data) {
+          throw new Error(
+            "R2 尚無 external_risk.json。"
+          );
+        }
+        state.externalRisk = data;
+        updateRiskStatus();
       } else {
+        data =
+          state.analysis ||
+          await fetchLatestAnalysis();
         state.analysis = data;
       }
 
@@ -671,7 +1142,9 @@
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
-      elements.statusText.textContent = `完整分析執行失敗：${error.message}`;
+      elements.statusText.textContent =
+        `完整分析執行失敗：${error.message}`;
+      notifyPipelineFailure(error);
     } finally {
       setRunning(false);
     }
@@ -698,7 +1171,9 @@
     } catch (error) {
       console.error(error);
       elements.statusLine.classList.add("error");
-      elements.statusText.textContent = `目前清單完整分析失敗：${error.message}`;
+      elements.statusText.textContent =
+        `目前清單完整分析失敗：${error.message}`;
+      notifyPipelineFailure(error);
     } finally {
       setRunning(false);
     }
@@ -1151,6 +1626,7 @@
       state.sourceBundle = sourceBundle;
       state.config = config;
       state.externalRisk = externalRisk;
+      startRiskCountdownClock();
       renderAnalysis(analysis, today);
       scheduleExternalRiskScan(800);
       if (sourceBundle?.matches) {
@@ -1201,6 +1677,11 @@
 
   elements.searchBox.addEventListener("input", applyFilters);
 
+  elements.analysisToastClose.addEventListener(
+    "click",
+    hideAnalysisToast
+  );
+
   elements.downloadPinnacle.addEventListener(
     "click",
     event => {
@@ -1217,9 +1698,23 @@
     }
   );
 
+  elements.downloadRisk.addEventListener(
+    "click",
+    event => {
+      event.preventDefault();
+      void downloadCurrentJson("risk");
+    }
+  );
+
   document.querySelectorAll(".run-button").forEach(button => {
     button.addEventListener("click", async () => {
       try {
+        await prepareCompletionNotification(
+          button.dataset.mode === "full"
+            ? "full"
+            : "reanalyze"
+        );
+
         if (button.dataset.mode === "full") {
           await runFullPipelinePhase4();
         } else {
@@ -1232,6 +1727,7 @@
         elements.statusLine.classList.add("error");
         elements.statusText.textContent =
           `按鈕執行失敗：${error?.message || String(error)}`;
+        notifyPipelineFailure(error);
         setRunning(false);
       }
     });

@@ -1955,3 +1955,49 @@ Cloudflare R2 / external_risk.json
 距開賽 2 小時內：1 小時
 比賽過期後：不再掃描
 ```
+
+
+---
+
+## External Risk v1.1｜六小時快取、時間顯示與完成通知
+
+外部風險快取判定：
+
+```text
+match_key 相同
+＋ 熱門方相同
+＋ 評級相同
+＋ checked_at 未超過 6 小時
+```
+
+符合時，重新分析會直接沿用 R2 `external_risk.json`，
+不重新呼叫 Gemini。
+
+`external_risk.json` 新增：
+
+```text
+updated_at_taiwan
+last_completed_at_taiwan
+next_refresh_at_taiwan
+cache_hours
+cache_policy
+```
+
+網頁會顯示：
+
+```text
+風險更新 2026-08-03 17:30:00｜下次 5小時42分
+```
+
+新增：
+
+```text
+下載風險 JSON
+```
+
+使用者按分析按鈕後，網頁會嘗試取得瀏覽器通知權限。
+全部分析與外部風險流程完成時：
+
+- 頁面右下角顯示通知。
+- Chrome 通知權限已允許時，Windows 右下角也會顯示通知。
+- 點擊系統通知會回到 TennisRatio 頁面。
