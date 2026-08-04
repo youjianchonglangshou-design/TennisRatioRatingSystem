@@ -2,7 +2,7 @@
 
 <html lang="zh-Hant"><head><meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<title>TennisRatio｜Gemini 2.5 Flash</title><link href="./styles.css?v=gemini-unified-usage-v1-hotfix3" rel="stylesheet"/></head>
+<title>TennisRatio｜Gemini 2.5 Flash</title><link href="./styles.css?v=status-cockpit-v1" rel="stylesheet"/></head>
 <body data-analysis-ready="0" data-revision="0" data-runtime="github-pages-phase3-source-pipeline">
 <div class="app-shell" id="app-shell">
 <aside aria-hidden="true" class="chat-drawer" id="chat-drawer">
@@ -20,7 +20,8 @@
 <header class="app-head">
 <div class="brand"><h1><span class="brand-mark">🎾 TennisRatio 2.0</span>｜ATP／WTA勝率與EV全自動化</h1>
 <div class="subtitle"><span class="version">一般網頁版 v4.4.19</span>｜Pinnacle＋365比分網＋TennisRatio＋評級熱門方勝率、EV與BO3機械預測</div></div>
-<div aria-live="polite" class="gemini-usage-board" id="gemini-global-usage" title="Gemini 本頁用量統計載入中">
+<section aria-label="系統狀態艙" class="system-cockpit">
+<div aria-live="polite" class="gemini-usage-board cockpit-zone cockpit-ai" id="gemini-global-usage" title="Gemini 本頁用量統計載入中">
 <div class="gemini-usage-row">
 <span class="gemini-usage-model">✦ Gemini 2.5 Flash</span>
 <span class="gemini-usage-rpd" id="gemini-rpd-summary">Google Search RPD 本頁估算剩餘 500/500｜台灣 --:-- 重置｜倒數 --小時--分</span>
@@ -31,7 +32,11 @@
 <div class="gemini-usage-detail" id="gemini-usage-detail">本次尚無 API 用量｜今日 0 次 問答0／風險0｜累計 0 tokens</div>
 </div>
 </div>
-<div class="time-stack" title="Asia/Taipei"><div class="generated pinnacle-time"><span>Pinnacle抓取：</span><b id="pinnacle-time-value">讀取中</b></div><div class="generated"><span>更新時間：</span><b id="updated-time-value">讀取中</b></div></div>
+<div class="time-stack cockpit-times" title="Asia/Taipei">
+<div class="generated pinnacle-time cockpit-zone cockpit-pinnacle"><span>Pinnacle：</span><b id="pinnacle-time-value">讀取中</b></div>
+<div class="generated cockpit-zone cockpit-update"><span>系統更新：</span><b id="updated-time-value">讀取中</b></div>
+</div>
+</section>
 </header>
 <section aria-label="操作列" class="controls">
 <button class="control ai-toggle" id="chat-toggle" title="分析資料已載入，可開啟AI問答" type="button">✦ AI</button>
@@ -41,14 +46,14 @@
 <input aria-label="搜尋" class="control search-control" id="search-box" placeholder="搜尋球員、聯賽或狀態" type="search"/>
 <div aria-label="快速顯示" class="filter-chips" role="group"><button aria-pressed="true" class="filter-chip all active" data-filter="全部" type="button"><span>全部</span><b>0</b></button><button aria-pressed="false" class="filter-chip a" data-filter="A" type="button"><span>A</span><b>0</b></button><button aria-pressed="false" class="filter-chip b" data-filter="B" type="button"><span>B</span><b>0</b></button><button aria-pressed="false" class="filter-chip c" data-filter="C" type="button"><span>C</span><b>0</b></button><button aria-pressed="false" class="filter-chip x" data-filter="淘汰" type="button"><span>淘汰</span><b>0</b></button><button aria-pressed="false" class="filter-chip cold-choice" data-filter="冷門方" type="button"><span>冷門方</span><b>0</b></button><button aria-pressed="false" class="filter-chip expired" data-filter="過期" type="button"><span>過期</span><b>0</b></button><button aria-pressed="false" class="filter-chip missing" data-filter="資料不足" type="button"><span>資料不足</span><b>0</b></button><button aria-pressed="false" class="filter-chip missing" data-filter="場地待補" type="button"><span>場地待補</span><b>0</b></button><button aria-pressed="false" class="filter-chip missing" data-filter="層級待補" type="button"><span>層級待補</span><b>0</b></button></div>
 <span class="toolbar-spacer"></span>
-<button class="download" id="download-pinnacle" type="button">下載Pinnacle JSON</button>
-<button class="download" id="download-ratio" type="button">下載Ratio JSON</button>
-<button class="download" id="download-risk" type="button">下載風險 JSON</button>
+<button class="download download-pinnacle" id="download-pinnacle" type="button"><span aria-hidden="true" class="download-mark">↓</span><span>Pinnacle原始資料</span></button>
+<button class="download download-ratio" id="download-ratio" type="button"><span aria-hidden="true" class="download-mark">↓</span><span>Ratio分析資料</span></button>
+<button class="download download-risk" id="download-risk" type="button"><span aria-hidden="true" class="download-mark">↓</span><span>風險資訊</span></button>
 </section>
 <div class="status-line" id="job-status" role="status">
 <span class="status-dot"></span><span id="status-text">正在載入 R2 ratio_analysis.json、today_matches.json 與 source_bundle.json……</span>
-<span class="risk-status" id="risk-status">外部風險：待命</span>
-<span class="risk-cache-status" id="risk-cache-status">風險更新：尚無資料</span>
+<span class="risk-status" id="risk-status">● 風險掃描 待命</span>
+<span class="risk-cache-status" id="risk-cache-status">更新 尚無資料</span>
 <span class="visible-count" id="visible-count">顯示 0／0 場</span>
 </div>
 <div class="wrap"><table class="main"><thead><tr><th data-type="number">項次</th><th>日期時間</th><th>比賽資訊</th><th class="copy-head" data-nosort="true" title="複製日期與對戰"><svg aria-hidden="true" class="copy-icon copy-head-icon" focusable="false" viewbox="0 0 24 24"><rect height="12" rx="2.4" width="12" x="8" y="8"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></th><th class="home-player-head">主場</th><th class="away-player-head">客場</th><th data-type="number">熱門方賠率</th><th data-type="number">賠轉勝率</th><th data-type="number">評級勝率</th><th data-type="number">評級EV</th><th data-type="number">評級</th></tr></thead><tbody><tr class="dynamic-loading-row"><td colspan="11">正在由 app.js 讀取 ratio_analysis.json 並建立表格……</td></tr></tbody></table><div class="empty-filter" id="empty-filter">目前沒有可顯示的比賽；可按上方按鈕重新抓取。</div></div>
@@ -75,4 +80,4 @@
 <button class="analysis-toast-close" id="analysis-toast-close" type="button" aria-label="關閉通知">×</button>
 </div>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=rating65-ab-gate-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/ai-services.js?v=gemini-unified-usage-v1-hotfix1"></script><script defer src="./app.js?v=gemini-unified-usage-v1-hotfix3"></script></body></html>
+<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=rating65-ab-gate-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/ai-services.js?v=gemini-unified-usage-v1-hotfix1"></script><script defer src="./app.js?v=status-cockpit-v1"></script></body></html>

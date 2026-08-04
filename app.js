@@ -193,6 +193,28 @@
       : `${minutes}分鐘`;
   }
 
+
+  function setStatusSegments(element, segments) {
+    if (!element) return;
+    const fragment = document.createDocumentFragment();
+
+    segments.forEach((segment, index) => {
+      if (index > 0) {
+        const separator = document.createElement("span");
+        separator.className = "risk-separator";
+        separator.textContent = "｜";
+        fragment.appendChild(separator);
+      }
+
+      const node = document.createElement("span");
+      node.className = `risk-segment ${segment.className || "risk-segment-muted"}`;
+      node.textContent = String(segment.text || "");
+      fragment.appendChild(node);
+    });
+
+    element.replaceChildren(fragment);
+  }
+
   function updateRiskCacheStatus() {
     if (!elements.riskCacheStatus) return;
 
@@ -211,10 +233,26 @@
     );
 
     if (state.riskScanning) {
-      elements.riskCacheStatus.textContent =
+      setStatusSegments(
+        elements.riskCacheStatus,
         updatedAt
-          ? `上次更新 ${taiwanTimeText(updatedAt)}｜本次掃描中`
-          : "風險更新：首次掃描中";
+          ? [
+              {
+                text: `更新 ${taiwanTimeText(updatedAt)}`,
+                className: "risk-segment-info"
+              },
+              {
+                text: "本次掃描中",
+                className: "risk-segment-next"
+              }
+            ]
+          : [
+              {
+                text: "首次掃描中",
+                className: "risk-segment-next"
+              }
+            ]
+      );
       elements.riskCacheStatus.classList.add(
         "scanning"
       );
@@ -222,8 +260,12 @@
     }
 
     if (systemErrors > 0) {
-      elements.riskCacheStatus.textContent =
-        `外部風險系統錯誤｜API Key 或權限需檢查`;
+      setStatusSegments(elements.riskCacheStatus, [
+        {
+          text: "API Key 或權限需檢查",
+          className: "risk-segment-alert"
+        }
+      ]);
       elements.riskCacheStatus.classList.add(
         "expired"
       );
@@ -231,10 +273,20 @@
     }
 
     if (unfinished > 0) {
-      elements.riskCacheStatus.textContent =
-        `風險更新 ${taiwanTimeText(updatedAt)}` +
-        `｜未完成 ${unfinished} 場` +
-        `｜下次重新分析重試`;
+      setStatusSegments(elements.riskCacheStatus, [
+        {
+          text: `更新 ${taiwanTimeText(updatedAt)}`,
+          className: "risk-segment-info"
+        },
+        {
+          text: `未完成 ${unfinished} 場`,
+          className: "risk-segment-alert"
+        },
+        {
+          text: "下次重新分析重試",
+          className: "risk-segment-next"
+        }
+      ]);
       elements.riskCacheStatus.classList.add(
         "expired"
       );
@@ -245,28 +297,48 @@
     const nextRefreshAt = riskNextRefreshAt();
 
     if (!updatedAt) {
-      elements.riskCacheStatus.textContent =
-        "風險更新：尚無資料";
+      setStatusSegments(elements.riskCacheStatus, [
+        {
+          text: "更新 尚無資料",
+          className: "risk-segment-muted"
+        }
+      ]);
       return;
     }
 
     if (!nextRefreshAt) {
-      elements.riskCacheStatus.textContent =
-        `風險更新 ${taiwanTimeText(updatedAt)}` +
-        `｜下次重新分析時檢查`;
+      setStatusSegments(elements.riskCacheStatus, [
+        {
+          text: `更新 ${taiwanTimeText(updatedAt)}`,
+          className: "risk-segment-info"
+        },
+        {
+          text: "下次重新分析時檢查",
+          className: "risk-segment-next"
+        }
+      ]);
       return;
     }
 
     const expired =
       Date.parse(nextRefreshAt) <= Date.now();
 
-    elements.riskCacheStatus.textContent =
-      `風險更新 ${taiwanTimeText(
-        completedAt || updatedAt
-      )}` +
-      `｜下次 ${remainingTimeText(
-        nextRefreshAt
-      )}`;
+    setStatusSegments(elements.riskCacheStatus, [
+      {
+        text: `更新 ${taiwanTimeText(
+          completedAt || updatedAt
+        )}`,
+        className: "risk-segment-info"
+      },
+      {
+        text: `下次 ${remainingTimeText(
+          nextRefreshAt
+        )}`,
+        className: expired
+          ? "risk-segment-alert"
+          : "risk-segment-next"
+      }
+    ]);
 
     elements.riskCacheStatus.classList.add(
       expired ? "expired" : "fresh"
@@ -823,8 +895,16 @@
       "risk-status";
 
     if (!rows.length) {
-      elements.riskStatus.textContent =
-        "外部風險：無 A／B 待掃描";
+      setStatusSegments(elements.riskStatus, [
+        {
+          text: "● 風險掃描",
+          className: "risk-segment-success"
+        },
+        {
+          text: "無 A／B 待掃描",
+          className: "risk-segment-muted"
+        }
+      ]);
       elements.riskStatus.classList.add(
         "complete"
       );
@@ -832,10 +912,16 @@
     }
 
     if (systemErrors > 0) {
-      elements.riskStatus.textContent =
-        `外部風險系統錯誤` +
-        `｜API Key／權限` +
-        `｜已完成 ${resolved}/${rows.length}`;
+      setStatusSegments(elements.riskStatus, [
+        {
+          text: "● 風險掃描系統錯誤",
+          className: "risk-segment-alert"
+        },
+        {
+          text: `已完成 ${resolved}/${rows.length}`,
+          className: "risk-segment-muted"
+        }
+      ]);
       elements.riskStatus.classList.add(
         "warning"
       );
@@ -843,19 +929,31 @@
     }
 
     if (state.riskScanning) {
-      elements.riskStatus.textContent =
-        `外部風險掃描 ${processed}/${rows.length}` +
-        (risks ? `｜警示 ${risks}` : "") +
-        (
-          manualReviews
-            ? `｜人工判讀 ${manualReviews}`
-            : ""
-        ) +
-        (
-          incomplete
-            ? `｜未完成 ${incomplete}`
-            : ""
-        );
+      const segments = [
+        {
+          text: `● 風險掃描 ${processed}/${rows.length}`,
+          className: "risk-segment-info"
+        }
+      ];
+      if (risks) {
+        segments.push({
+          text: `!! 警示 ${risks}`,
+          className: "risk-segment-alert"
+        });
+      }
+      if (manualReviews) {
+        segments.push({
+          text: `人工判讀 ${manualReviews}`,
+          className: "risk-segment-review"
+        });
+      }
+      if (incomplete) {
+        segments.push({
+          text: `未完成 ${incomplete}`,
+          className: "risk-segment-muted"
+        });
+      }
+      setStatusSegments(elements.riskStatus, segments);
       elements.riskStatus.classList.add(
         "scanning"
       );
@@ -866,14 +964,25 @@
       resolved === rows.length &&
       incomplete === 0
     ) {
-      elements.riskStatus.textContent =
-        `外部風險完成 ${resolved}/${rows.length}` +
-        `｜警示 ${risks}` +
-        (
-          manualReviews
-            ? `｜人工判讀 ${manualReviews}`
-            : ""
-        );
+      const segments = [
+        {
+          text: `● 風險掃描 ${resolved}/${rows.length}`,
+          className: "risk-segment-success"
+        },
+        {
+          text: `!! 警示 ${risks}`,
+          className: risks
+            ? "risk-segment-alert"
+            : "risk-segment-muted"
+        }
+      ];
+      if (manualReviews) {
+        segments.push({
+          text: `人工判讀 ${manualReviews}`,
+          className: "risk-segment-review"
+        });
+      }
+      setStatusSegments(elements.riskStatus, segments);
       elements.riskStatus.classList.add(
         risks
           ? "warning"
@@ -886,15 +995,31 @@
       return;
     }
 
-    elements.riskStatus.textContent =
-      `外部風險部分完成 ${resolved}/${rows.length}` +
-      `｜警示 ${risks}` +
-      (
-        manualReviews
-          ? `｜人工判讀 ${manualReviews}`
-          : ""
-      ) +
-      `｜未完成 ${incomplete}`;
+    const segments = [
+      {
+        text: `● 風險掃描 ${resolved}/${rows.length}`,
+        className: resolved
+          ? "risk-segment-success"
+          : "risk-segment-muted"
+      },
+      {
+        text: `!! 警示 ${risks}`,
+        className: risks
+          ? "risk-segment-alert"
+          : "risk-segment-muted"
+      }
+    ];
+    if (manualReviews) {
+      segments.push({
+        text: `人工判讀 ${manualReviews}`,
+        className: "risk-segment-review"
+      });
+    }
+    segments.push({
+      text: `未完成 ${incomplete}`,
+      className: "risk-segment-muted"
+    });
+    setStatusSegments(elements.riskStatus, segments);
 
     elements.riskStatus.classList.add(
       "unknown"

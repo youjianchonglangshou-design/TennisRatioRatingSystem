@@ -1040,79 +1040,294 @@ table.main{
   .gemini-usage-board{margin-top:7px;min-width:0;width:100%}.gemini-usage-row{grid-template-columns:1fr 16px;gap:6px}.gemini-usage-model{grid-column:1}.gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}.gemini-usage-help{grid-column:2;grid-row:1}
 }
 
+/* ============================================================
+   Status Cockpit v1：右上角整合為單一系統狀態艙
+   色彩語言：青=AI、金=外部原始資料、藍=系統產出、
+             紫=展開深入、綠=完成、紅=真正警示、灰=次要資訊。
+   ============================================================ */
+:root{
+  --header-status-height:24px;
+  --tone-ai:#72e6ff;
+  --tone-source:#f2c864;
+  --tone-output:#73bdff;
+  --tone-deep:#b895ff;
+  --tone-ok:#68e2a5;
+  --tone-alert:#ff6677;
+  --tone-muted:#7f96aa;
+}
 
-/* Gemini Unified Usage Hotfix3：右側三框齊高、收緊問號距離、用量框靠攏時間框 */
-:root{--header-status-height:24px}
 .app-head{
-  column-gap:5px;
+  align-items:flex-start;
+  column-gap:10px;
 }
 .app-head .brand{
   flex:1 1 auto;
   min-width:0;
 }
-.gemini-usage-board{
+
+/* 單一外框，內部分區，不再三個獨立發光盒 */
+.system-cockpit{
+  position:relative;
+  display:flex;
+  align-items:stretch;
   flex:0 1 auto;
   min-width:0;
-  max-width:min(780px,58vw);
   height:var(--header-status-height);
   margin-left:auto;
-  padding:0 7px;
+  overflow:visible;
+  border:1px solid #29465d;
+  border-radius:7px;
+  background:linear-gradient(180deg,#0d1b2b 0%,#091522 100%);
+  box-shadow:inset 0 1px 0 #a9e8ff10,0 0 9px #2bbde411;
+}
+.system-cockpit .cockpit-zone{
+  position:relative;
+  min-width:0;
+  height:100%;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.system-cockpit .cockpit-zone + .cockpit-zone,
+.system-cockpit .cockpit-times .cockpit-zone:first-child{
+  border-left:1px solid #284258;
+}
+
+/* AI 區 */
+.gemini-usage-board{
   display:flex;
   align-items:center;
-  border-radius:6px;
+  flex:0 1 auto;
+  min-width:0;
+  max-width:min(760px,55vw);
+  padding:0 8px;
+  color:#91a9bb;
+  font-size:9.5px;
+  line-height:1;
+  overflow:visible;
 }
 .gemini-usage-row{
-  width:100%;
-  min-height:0;
-  height:100%;
   display:flex;
   align-items:center;
   justify-content:flex-start;
+  width:100%;
+  height:100%;
+  min-height:0;
   gap:5px;
   white-space:nowrap;
 }
 .gemini-usage-model{
   flex:0 0 auto;
+  color:var(--tone-ai);
+  font-weight:900;
+  text-shadow:0 0 7px #63ddff33;
 }
 .gemini-usage-rpd{
   flex:0 1 auto;
   min-width:0;
+  overflow:hidden;
+  color:#dfbd70;
+  font-weight:700;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
+.gemini-usage-rpd strong{color:#ffe39a}
+.gemini-reset-countdown{font-variant-numeric:tabular-nums;letter-spacing:.2px}
+
+/* 紫色代表展開下一層資訊，不再誤用紅色 */
 .gemini-usage-help{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
   flex:0 0 14px;
   width:14px;
   height:14px;
   margin-left:2px;
+  padding:0;
+  border:1px solid #7958d8;
+  border-radius:50%;
+  background:#241938;
+  color:#cdb9ff;
   font-size:9px;
-  box-shadow:0 0 4px #ff546624;
+  font-weight:1000;
+  line-height:1;
+  cursor:pointer;
+  box-shadow:0 0 5px #a077ff2b;
 }
-.app-head .time-stack{
-  align-self:center;
-  gap:5px;
+.gemini-usage-help:hover,
+.gemini-usage-help:focus-visible,
+.gemini-usage-help[aria-expanded="true"]{
+  outline:none;
+  border-color:#b895ff;
+  background:#352253;
+  color:#f1e9ff;
+  box-shadow:0 0 0 2px #a87cff22,0 0 10px #a87cff55;
 }
-.app-head .generated{
-  height:var(--header-status-height);
-  padding:0 7px;
+.gemini-usage-popover{
+  position:absolute;
+  z-index:90;
+  top:calc(100% + 6px);
+  right:0;
+  width:min(410px,calc(100vw - 36px));
+  padding:10px 12px;
+  border:1px solid #6f58a6;
+  border-radius:8px;
+  background:#101522;
+  color:#d7e4ec;
+  box-shadow:0 16px 36px #000b,0 0 0 1px #a98bff17 inset;
+}
+.gemini-usage-popover[hidden]{display:none}
+.gemini-usage-popover::before{
+  content:"";
+  position:absolute;
+  right:7px;
+  top:-6px;
+  width:10px;
+  height:10px;
+  border-left:1px solid #6f58a6;
+  border-top:1px solid #6f58a6;
+  background:#101522;
+  transform:rotate(45deg);
+}
+.gemini-usage-popover-title{
+  margin-bottom:5px;
+  color:#cdb9ff;
+  font-size:10px;
+  font-weight:900;
+}
+.gemini-usage-detail{
+  color:#d9e7ef;
+  font-size:11px;
+  font-weight:700;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+.gemini-usage-detail strong{color:#fff1a5}
+
+/* Pinnacle 與系統更新同居狀態艙，以細分隔線區隔 */
+.system-cockpit .cockpit-times{
+  display:flex;
+  align-items:stretch;
+  flex:0 0 auto;
+  height:100%;
+  gap:0;
+}
+.system-cockpit .generated{
   display:inline-flex;
   align-items:center;
-  border-radius:6px;
+  height:100%;
+  padding:0 8px;
+  color:#8fa7ba;
+  font-size:9.5px;
   line-height:1;
+  white-space:nowrap;
+}
+.system-cockpit .generated span{font-weight:800}
+.system-cockpit .generated b{font-weight:900}
+.system-cockpit .pinnacle-time{
+  color:#c9ad6d;
+}
+.system-cockpit .pinnacle-time b{
+  color:var(--tone-source);
+}
+.system-cockpit .cockpit-update{
+  color:#83a9c8;
+}
+.system-cockpit .cockpit-update b{
+  color:var(--tone-output);
 }
 
+/* 三個下載操作：深色共用底，僅圖示、邊框與 hover 使用領域色 */
+.download{
+  --download-tone:#70bfff;
+  gap:5px;
+  border-color:#2b4358;
+  background:#0c1928;
+  color:#cbd9e4;
+  box-shadow:none;
+}
+.download .download-mark{
+  color:var(--download-tone);
+  font-size:13px;
+  font-weight:1000;
+  line-height:1;
+  text-shadow:0 0 7px color-mix(in srgb,var(--download-tone) 45%,transparent);
+}
+.download-pinnacle{--download-tone:var(--tone-source)}
+.download-ratio{--download-tone:var(--tone-output)}
+.download-risk{--download-tone:var(--tone-deep)}
+.download:hover,
+.download:focus-visible{
+  outline:none;
+  border-color:var(--download-tone);
+  background:#102237;
+  color:#eef8ff;
+  box-shadow:0 0 9px color-mix(in srgb,var(--download-tone) 25%,transparent);
+}
+
+/* 執行結果列：同一外框、以細線與關鍵字顏色建立層級 */
+.status-line{
+  gap:0;
+  border-color:#203b52;
+  background:#091522;
+}
+#status-text{
+  min-width:0;
+  overflow:hidden;
+  color:#8ba3b7;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.risk-status,
+.risk-cache-status,
+.visible-count{
+  display:inline-flex;
+  align-items:center;
+  min-height:15px;
+  margin-left:9px;
+  padding-left:9px;
+  border-left:1px solid #294155;
+  white-space:nowrap;
+}
+.risk-status{color:#8ca5b9}
+.risk-cache-status{color:#82aac5}
+.visible-count{color:#73899c}
+.risk-status + .visible-count,
+.risk-cache-status + .visible-count{margin-left:9px}
+.risk-segment{white-space:nowrap}
+.risk-separator{padding:0 4px;color:#51687a}
+.risk-segment-success{color:var(--tone-ok);font-weight:900}
+.risk-segment-alert{color:var(--tone-alert);font-weight:900;text-shadow:0 0 6px #ff647733}
+.risk-segment-review{color:var(--tone-deep);font-weight:900}
+.risk-segment-info{color:#7fd9f5;font-weight:800}
+.risk-segment-next{color:#b899f3;font-weight:800}
+.risk-segment-muted{color:#8297a8}
+
+/* 小螢幕：整個狀態艙作為一個單位換行，不拆散三區 */
 @media(max-width:1250px){
-  .gemini-usage-board{
+  .app-head{flex-wrap:wrap}
+  .system-cockpit{
     order:3;
     flex-basis:100%;
     width:100%;
-    max-width:none;
     margin-left:0;
+  }
+  .gemini-usage-board{
+    flex:1 1 auto;
+    max-width:none;
   }
 }
 @media(max-width:850px){
-  .gemini-usage-board{
+  .system-cockpit{
     height:auto;
     min-height:var(--header-status-height);
-    margin-top:7px;
+    flex-wrap:wrap;
+    overflow:visible;
+  }
+  .gemini-usage-board{
+    width:100%;
+    min-height:var(--header-status-height);
   }
   .gemini-usage-row{
     display:grid;
@@ -1124,4 +1339,15 @@ table.main{
   .gemini-usage-model{grid-column:1;grid-row:1}
   .gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}
   .gemini-usage-help{grid-column:2;grid-row:1;margin-left:0}
+  .system-cockpit .cockpit-times{
+    width:100%;
+    border-top:1px solid #284258;
+  }
+  .system-cockpit .cockpit-times .cockpit-zone:first-child{border-left:0}
+  .system-cockpit .generated{flex:1 1 50%;justify-content:center}
+  .risk-status,.risk-cache-status,.visible-count{
+    width:auto;
+    margin-left:7px;
+    padding-left:7px;
+  }
 }
