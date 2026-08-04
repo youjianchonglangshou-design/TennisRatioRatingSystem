@@ -919,28 +919,28 @@ table.main{
 }
 
 
-/* Gemini Worker 共用 Secret + 全域用量面板：單列摘要＋點擊明細 */
+/* Gemini Worker 共用 Secret + 全域用量面板：極薄單列摘要＋點擊明細 */
 .gemini-usage-board{
   position:relative;
   flex:1 1 560px;
   min-width:500px;
   max-width:760px;
-  padding:7px 9px;
+  padding:2px 6px;
   border:1px solid #26536f;
-  border-radius:8px;
+  border-radius:6px;
   background:linear-gradient(135deg,#0c1c2d,#091421);
-  box-shadow:inset 0 1px 0 #8be8ff12,0 0 12px #37c9ed12;
+  box-shadow:inset 0 1px 0 #8be8ff12,0 0 8px #37c9ed0f;
   color:#91a9bb;
-  font-size:10px;
-  line-height:1.35;
+  font-size:9.5px;
+  line-height:1;
   overflow:visible;
 }
 .gemini-usage-row{
   display:grid;
-  grid-template-columns:max-content minmax(0,1fr) 23px;
+  grid-template-columns:max-content minmax(0,1fr) 16px;
   align-items:center;
-  gap:10px;
-  min-height:23px;
+  gap:7px;
+  min-height:18px;
 }
 .gemini-usage-model{
   color:#7fe8ff;
@@ -961,18 +961,18 @@ table.main{
   display:inline-flex;
   align-items:center;
   justify-content:center;
-  width:21px;
-  height:21px;
+  width:15px;
+  height:15px;
   padding:0;
   border:1px solid #a33b49;
   border-radius:50%;
   background:#32151d;
   color:#ff6877;
-  font-size:14px;
+  font-size:10px;
   font-weight:1000;
   line-height:1;
   cursor:pointer;
-  box-shadow:0 0 8px #ff546633;
+  box-shadow:0 0 5px #ff54662b;
 }
 .gemini-usage-help:hover,
 .gemini-usage-help:focus-visible,
@@ -987,7 +987,7 @@ table.main{
   position:absolute;
   z-index:90;
   top:calc(100% + 6px);
-  right:7px;
+  right:5px;
   width:min(410px,calc(100vw - 36px));
   padding:10px 12px;
   border:1px solid #6f5a2a;
@@ -1037,5 +1037,5 @@ table.main{
   .gemini-usage-board{order:3;flex-basis:100%;max-width:none;min-width:0}
 }
 @media(max-width:850px){
-  .gemini-usage-board{margin-top:7px;min-width:0;width:100%}.gemini-usage-row{grid-template-columns:1fr 23px;gap:6px}.gemini-usage-model{grid-column:1}.gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}.gemini-usage-help{grid-column:2;grid-row:1}
+  .gemini-usage-board{margin-top:7px;min-width:0;width:100%}.gemini-usage-row{grid-template-columns:1fr 16px;gap:6px}.gemini-usage-model{grid-column:1}.gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}.gemini-usage-help{grid-column:2;grid-row:1}
 }
