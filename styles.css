@@ -1367,3 +1367,44 @@ table.main{
     margin-left:auto;
   }
 }
+
+
+/* ============================================================
+   Safe Gemini Queue + Detailed Diagnostics v1
+   ============================================================ */
+.risk-overview.risk-system{
+  border-color:#8b3c4b;
+  background:linear-gradient(135deg,#2a151d,#0b1a2a);
+}
+.risk-badge.risk-system{
+  border:1px solid #b34d5e;
+  background:#421a24;
+  color:#ffabb3;
+}
+.risk-diagnostic{
+  padding:10px 11px;
+  border:1px solid #604653;
+  border-radius:8px;
+  background:#151621;
+}
+.risk-diagnostic h3{
+  color:#ff9aa5;
+}
+.risk-diagnostic-list{
+  margin:0;
+  padding-left:20px;
+  color:#d8e2ea;
+  font-size:11.5px;
+  line-height:1.65;
+}
+.risk-diagnostic-list li{margin:4px 0}
+.risk-status.warning,
+.risk-cache-status.error{
+  cursor:pointer;
+}
+.risk-status.warning:hover,
+.risk-cache-status.error:hover{
+  text-decoration:underline;
+  text-decoration-color:#ff758455;
+  text-underline-offset:3px;
+}

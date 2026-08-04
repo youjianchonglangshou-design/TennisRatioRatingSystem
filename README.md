@@ -664,3 +664,59 @@ Cloudflare Worker 必須同步覆蓋 `Cloudflare/cloudflare-worker.js` 並重新
 - `GEMINI_API_KEY` Secret
 - `UPLOAD_TOKEN` Secret
 - `JSON_BUCKET` R2 binding
+
+
+## Gemini 用量面板 Hotfix1
+
+主畫面只保留模型名稱、Google Search RPD 本頁估算、台灣重置時間與「小時／分」倒數。右上角紅色 `?` 可展開本次問答或風險掃描、今日呼叫次數及累計 Token。此版不需要修改 Cloudflare Worker。
+
+
+## 23. Gemini 安全排程與 Telegram 完成通知
+
+### Gemini 風險掃描
+
+- 同一時間只允許 1 個 Gemini 請求；左側問答與風險掃描共用同一條佇列。
+- 每位新球員完成後安全冷卻 30～35 秒。
+- 每位球員最多嘗試 2 次。
+- 429／503／逾時會依情境等待後重試一次；第二次仍失敗即停止整批，已完成結果保留在 R2。
+- RPM、TPM、模型 RPD、Google Search RPD、503、權限、地區、模型、413、逾時會顯示不同診斷，不再統稱「額度滿」。
+- 成功結果快取 6 小時；同一熱門方重複出現時共用結果。
+
+### Telegram
+
+三個按鈕完成後都會通知 Telegram chat ID `1880226268`：
+
+- 重新抓取＋完整分析
+- 只重跑目前清單
+- 分析風險
+
+在 Cloudflare Worker 建立 Secret：
+
+```text
+TELEGRAM_BOT_TOKEN
+```
+
+API Token 不可寫入 GitHub 或 `app.js`。Bot 必須先由該 Telegram 帳號開啟對話並按 `/start`。
+
+### 安全排程補充
+
+- 風險掃描期間，左側 Gemini 問答會等待整批掃描結束，不會插入 30～35 秒安全冷卻區間。
+- 同一頁內所有 Gemini 請求使用單一 JavaScript 佇列；支援 Web Locks 的瀏覽器還會協調同源分頁，避免兩個 TennisRatio 分頁同時送出 Gemini 請求。
+- 只有真正呼叫 Gemini 的新球員才需要冷卻；R2 快取或同球員共用結果不會空等 30 秒。
+- 停止卡片會列出目前球員、已保存數、未完成數、HTTP、錯誤類型、Quota metric／ID、建議等待與重試次數。
+
+### Telegram Secret
+
+Cloudflare Worker 的 Telegram Token 留在下列 Secret：
+
+```text
+TELEGRAM_BOT_TOKEN
+```
+
+固定接收 Chat ID：
+
+```text
+1880226268
+```
+
+Telegram 通知失敗不會回滾已完成分析或刪除 R2 結果；主畫面會明確顯示 Telegram 未送出與錯誤原因。

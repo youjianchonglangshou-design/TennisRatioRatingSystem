@@ -36,6 +36,7 @@
   const GEMINI_USAGE_KEY = "tennisratio.gemini.usage.v1";
   const GEMINI_GROUNDED_DAILY_LIMIT = 500;
   const ANALYSIS_TOAST_DURATION_MS = 18000;
+  const TELEGRAM_NOTIFY_PATH = "/telegram/notify";
   const DEFAULT_TENNIS_PROMPT = "你是一般用途的 Gemini 助理，同時熟悉 TennisRatio 網球賽事分析。使用繁體中文，回答清楚、精確、可覆盤。可以回答一般問題；涉及近期消息時使用 Google Search 並列出來源。以系統提供的 Pinnacle 與 ratio_analysis.json 為主要依據，不捏造賠率、勝率、評級、D值或五項比較。區分『較可能獲勝』與『目前賠率是否值得下注』，不要承諾獲利。";
 
   const state = {
@@ -58,7 +59,8 @@
     riskCountdownTimer: null,
     toastTimer: null,
     completionNotificationPending: false,
-    completionNotificationMode: null
+    completionNotificationMode: null,
+    lastRiskDiagnostic: null
   };
 
   const elements = {
@@ -429,129 +431,145 @@
     }
   }
 
+  function completionModeLabel(mode) {
+    return ({
+      full: "重新抓取＋完整分析",
+      reanalyze: "只重跑目前清單",
+      risk: "分析風險"
+    })[mode] || "TennisRatio 任務";
+  }
+
+  async function sendTelegramNotification(payload) {
+    const token = configurationValue(WORKER_UPLOAD_TOKEN, "WORKER_UPLOAD_TOKEN");
+    const response = await fetch(`${WORKER_URL}${TELEGRAM_NOTIFY_PATH}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store"
+    });
+    const text = await response.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; }
+    catch { data = { error: text }; }
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.detail || data?.error || `Telegram HTTP ${response.status}`);
+    }
+    return data;
+  }
+
   function clearPendingCompletionNotification() {
     state.completionNotificationPending = false;
     state.completionNotificationMode = null;
   }
 
-  function notifyWholeAnalysisComplete({
+  async function notifyWholeAnalysisComplete({
     usedCache = false,
     failed = false
   } = {}) {
     if (!state.completionNotificationPending) return;
 
+    const mode = state.completionNotificationMode;
+    clearPendingCompletionNotification();
+
     const rows = eligibleRiskRows();
-    const entries = Array.isArray(
-      state.externalRisk?.entries
-    )
-      ? state.externalRisk.entries
-      : [];
-    const entryMap = new Map(
-      entries.map(entry => [
-        String(entry?.match_key || ""),
-        entry
-      ])
-    );
+    const entries = Array.isArray(state.externalRisk?.entries) ? state.externalRisk.entries : [];
+    const entryMap = new Map(entries.map(entry => [String(entry?.match_key || ""), entry]));
 
     let riskCount = 0;
     let manualReviewCount = 0;
     let unfinishedCount = 0;
     let systemErrorCount = 0;
+    let completedCount = 0;
 
     for (const row of rows) {
-      const entry = entryMap.get(
-        aiClient.externalRiskMatchKey(row)
-      );
-      const status =
-        aiClient.normalizeRiskStatus(
-          entry?.status
-        );
-
-      if (status === "risk_found") {
-        riskCount += 1;
-      }
-      if (status === "manual_review") {
-        manualReviewCount += 1;
-      }
-      if (status === "search_incomplete") {
-        unfinishedCount += 1;
-      }
-      if (status === "system_error") {
-        systemErrorCount += 1;
-      }
+      const entry = entryMap.get(aiClient.externalRiskMatchKey(row));
+      const status = aiClient.normalizeRiskStatus(entry?.status);
+      if (aiClient.isRiskResolvedStatus(status)) completedCount += 1;
+      if (status === "risk_found") riskCount += 1;
+      if (status === "manual_review") manualReviewCount += 1;
+      if (status === "search_incomplete") unfinishedCount += 1;
+      if (status === "system_error") systemErrorCount += 1;
     }
 
-    const modeLabels = {
-      full: "重新抓取＋完整分析",
-      reanalyze: "目前清單重跑",
-      risk: "分析風險"
-    };
-    const modeText =
-      modeLabels[
-        state.completionNotificationMode
-      ] || "外部風險分析";
+    const modeText = completionModeLabel(mode);
     const cacheText = usedCache
-      ? "外部風險直接沿用 R2 六小時快取。"
-      : "外部風險已完成並寫入 R2。";
+      ? "外部風險沿用 R2 六小時快取。"
+      : "外部風險結果已逐場寫入 R2。";
     const message =
       `${modeText}完成｜A/B ${rows.length}場` +
+      `｜完成 ${completedCount}/${rows.length}` +
       `｜警示 ${riskCount}` +
-      (
-        manualReviewCount
-          ? `｜人工判讀 ${manualReviewCount}`
-          : ""
-      ) +
-      (
-        unfinishedCount
-          ? `｜未完成 ${unfinishedCount}`
-          : ""
-      ) +
-      (
-        systemErrorCount
-          ? `｜系統錯誤 ${systemErrorCount}`
-          : ""
-      ) +
+      (manualReviewCount ? `｜人工判讀 ${manualReviewCount}` : "") +
+      (unfinishedCount ? `｜未完成 ${unfinishedCount}` : "") +
+      (systemErrorCount ? `｜系統錯誤 ${systemErrorCount}` : "") +
       `。${cacheText}`;
 
-    const tone =
-      failed ||
-      unfinishedCount ||
-      systemErrorCount
-        ? "warning"
-        : "success";
-
+    const tone = failed || unfinishedCount || systemErrorCount ? "warning" : "success";
     showAnalysisToast(
-      failed
-        ? "分析完成，但外部風險有待確認"
-        : "TennisRatio 全部分析完成",
+      failed ? "分析完成，但外部風險有待確認" : "TennisRatio 全部分析完成",
       message,
       tone
     );
-
     sendSystemNotification(
-      failed
-        ? "TennisRatio 完成｜部分風險待確認"
-        : "TennisRatio 全部分析完成",
+      failed ? "TennisRatio 完成｜部分風險待確認" : "TennisRatio 全部分析完成",
       message
     );
 
-    clearPendingCompletionNotification();
+    const telegramText = [
+      "🎾 TennisRatio 2.0",
+      `${failed ? "⚠️" : "✅"} ${modeText}完成`,
+      `時間：${taiwanTimeText(new Date().toISOString())}`,
+      `分析場次：${state.analysis?.matches?.length || 0}`,
+      `A／B風險：完成 ${completedCount}/${rows.length}`,
+      `警示：${riskCount}｜人工判讀：${manualReviewCount}｜未完成：${unfinishedCount}｜系統錯誤：${systemErrorCount}`,
+      cacheText
+    ].join("\n");
+
+    try {
+      await sendTelegramNotification({
+        mode,
+        status: failed ? "partial" : "complete",
+        text: telegramText
+      });
+      elements.statusText.textContent = `${elements.statusText.textContent}｜Telegram 已送出`;
+    } catch (error) {
+      console.error("Telegram 完成通知失敗", error);
+      showAnalysisToast(
+        "分析已完成｜Telegram 未送出",
+        `${message}｜Telegram：${error?.message || String(error)}`,
+        "warning"
+      );
+      elements.statusLine.classList.add("error");
+      elements.statusText.textContent = `${elements.statusText.textContent}｜Telegram 通知失敗：${error?.message || String(error)}`;
+    }
   }
 
-  function notifyPipelineFailure(error) {
-    const message =
-      error?.message || String(error);
-
-    showAnalysisToast(
-      "TennisRatio 分析失敗",
-      message,
-      "error"
-    );
-    sendSystemNotification(
-      "TennisRatio 分析失敗",
-      message
-    );
+  async function notifyPipelineFailure(error) {
+    if (!state.completionNotificationPending) return;
+    const mode = state.completionNotificationMode;
     clearPendingCompletionNotification();
+    const message = error?.message || String(error);
+
+    showAnalysisToast("TennisRatio 分析失敗", message, "error");
+    sendSystemNotification("TennisRatio 分析失敗", message);
+
+    try {
+      await sendTelegramNotification({
+        mode,
+        status: "failed",
+        text: [
+          "🎾 TennisRatio 2.0",
+          `❌ ${completionModeLabel(mode)}失敗`,
+          `時間：${taiwanTimeText(new Date().toISOString())}`,
+          `原因：${message}`
+        ].join("\n")
+      });
+    } catch (telegramError) {
+      console.error("Telegram 失敗通知也未送出", telegramError);
+    }
   }
 
   async function fetchJson(path) {
@@ -1224,8 +1242,7 @@
 
     if (
       !entry ||
-      entry.status === "pending" ||
-      status === "system_error"
+      entry.status === "pending"
     ) {
       return;
     }
@@ -1251,7 +1268,7 @@
           : (
               status === "search_incomplete"
                 ? "risk-incomplete"
-                : status
+                : (status === "system_error" ? "risk-system" : status)
             )
       }`;
 
@@ -1264,7 +1281,7 @@
           : (
               status === "search_incomplete"
                 ? "risk-incomplete"
-                : status
+                : (status === "system_error" ? "risk-system" : status)
             )
       }`;
     badge.textContent =
@@ -1282,6 +1299,47 @@
       entry.impact
     );
     body.appendChild(overview);
+
+    if (entry.diagnostic_title || Array.isArray(entry.diagnostic_lines)) {
+      const diagnosticSection = document.createElement("section");
+      diagnosticSection.className = "risk-section risk-diagnostic";
+      const diagnosticTitle = document.createElement("h3");
+      diagnosticTitle.textContent = entry.diagnostic_title || "系統診斷";
+      diagnosticSection.appendChild(diagnosticTitle);
+      const diagnosticList = document.createElement("ul");
+      diagnosticList.className = "risk-diagnostic-list";
+      const lines = Array.isArray(entry.diagnostic_lines) ? entry.diagnostic_lines : [];
+      for (const line of lines) {
+        if (!String(line || "").trim()) continue;
+        const item = document.createElement("li");
+        item.textContent = String(line);
+        diagnosticList.appendChild(item);
+      }
+      if (entry.retry_after_seconds != null) {
+        const item = document.createElement("li");
+        item.textContent = `建議等待：${entry.retry_after_seconds} 秒`;
+        diagnosticList.appendChild(item);
+      }
+      if (entry.scan_total != null) {
+        const item = document.createElement("li");
+        item.textContent =
+          `掃描進度：已保存 ${Number(entry.scan_saved || 0)}/${Number(entry.scan_total || 0)}` +
+          `｜未完成 ${Number(entry.scan_remaining || 0)} 位`;
+        diagnosticList.appendChild(item);
+      }
+      if (entry.scan_current_player) {
+        const item = document.createElement("li");
+        item.textContent = `目前球員：${entry.scan_current_player}`;
+        diagnosticList.appendChild(item);
+      }
+      if (entry.retry_count != null) {
+        const item = document.createElement("li");
+        item.textContent = `已重試：${entry.retry_count} 次`;
+        diagnosticList.appendChild(item);
+      }
+      diagnosticSection.appendChild(diagnosticList);
+      body.appendChild(diagnosticSection);
+    }
 
     const findings = Array.isArray(
       entry.findings
@@ -1475,7 +1533,9 @@
             )}%`
           : "—"
       }` +
-      `｜模型：${entry.model || "—"}`;
+      `｜模型：${entry.model || "—"}` +
+      (entry.http_status ? `｜HTTP：${entry.http_status}` : "") +
+      (entry.failure_type ? `｜錯誤類型：${entry.failure_type}` : "");
     body.appendChild(meta);
 
     const disclaimer =
@@ -1486,6 +1546,9 @@
     if (status === "manual_review") {
       disclaimer.textContent =
         "灰藍色 i 代表已找到資訊，但不由系統武斷決定。請閱讀上方內容與來源，自行判斷是否影響本場。";
+    } else if (status === "system_error") {
+      disclaimer.textContent =
+        "這是系統或 API 設定問題，不是球員風險。請依上方診斷修正後再執行。";
     } else if (
       status === "search_incomplete"
     ) {
@@ -1536,7 +1599,7 @@
 
     if (!rows.length) {
       updateRiskStatus();
-      notifyWholeAnalysisComplete({
+      await notifyWholeAnalysisComplete({
         usedCache: true
       });
       return;
@@ -1564,7 +1627,7 @@
 
     if (!staleRows.length) {
       updateRiskStatus();
-      notifyWholeAnalysisComplete({
+      await notifyWholeAnalysisComplete({
         usedCache: true
       });
       return;
@@ -1595,6 +1658,15 @@
             "請檢查 app.js 的 WORKER_UPLOAD_TOKEN。",
           search_completed: false,
           failure_type: "auth_401_403",
+          diagnostic_title: "⛔ Worker Token 尚未設定",
+          diagnostic_lines: [
+            "請在 app.js 填入 WORKER_UPLOAD_TOKEN。",
+            "這是系統驗證設定問題，不是球員風險。",
+            "本輪掃描已停止，不會自動重試。"
+          ],
+          retryable: false,
+          stop_batch: true,
+          quota_kind: null,
           http_status: null,
           retry_after_seconds: null,
           cache_hours: 0,
@@ -1609,7 +1681,8 @@
         refreshRiskSlot(row?.["項次"], entry);
       }
       updateRiskStatus();
-      notifyWholeAnalysisComplete({
+      state.lastRiskDiagnostic = staleRows.length ? riskEntryMap().get(aiClient.externalRiskMatchKey(staleRows[0])) || null : null;
+      await notifyWholeAnalysisComplete({
         usedCache: false,
         failed: true
       });
@@ -1635,8 +1708,17 @@
             existingEntries,
             workerUrl: WORKER_URL,
             workerToken,
-            delayMs: 900,
-            onPending: async row => {
+            delayMinMs: 30000,
+            delayMaxMs: 35000,
+            onQueueState: async info => {
+              if (generation !== state.riskScanGeneration) throw new Error("RISK_SCAN_SUPERSEDED");
+              if (info.state === "queued") {
+                elements.statusText.textContent =
+                  `Gemini 共用佇列｜風險搜尋等待中` +
+                  `｜前方 ${info.position || 1} 個請求`;
+              }
+            },
+            onPending: async (row, progress) => {
               if (
                 generation !==
                 state.riskScanGeneration
@@ -1645,6 +1727,9 @@
                   "RISK_SCAN_SUPERSEDED"
                 );
               }
+              elements.statusText.textContent =
+                `外部風險覆核｜準備搜尋 ${progress.completed + 1}/${progress.total}` +
+                `｜熱門方 ${row?.熱門方 || "—"}`;
               refreshRiskSlot(
                 row?.["項次"],
                 {
@@ -1664,6 +1749,9 @@
               }
 
               mergeRiskEntry(entry);
+              if (aiClient.isRiskFailureStatus(entry?.status)) {
+                state.lastRiskDiagnostic = entry;
+              }
               refreshRiskSlot(entry.item, entry);
               updateRiskStatus();
 
@@ -1699,6 +1787,32 @@
                 `｜熱門方 ${entry.hot_player}` +
                 `｜${riskStatusLabel(entry)}`;
             },
+            onCooldown: async info => {
+              if (generation !== state.riskScanGeneration) throw new Error("RISK_SCAN_SUPERSEDED");
+              elements.statusText.textContent =
+                `外部風險覆核｜已保存 ${info.completed}/${info.total}` +
+                `｜下一位 ${info.nextRow?.熱門方 || "—"}` +
+                `｜安全冷卻 ${info.remainingSeconds} 秒`;
+            },
+            onRetryWait: async (entry, info) => {
+              if (generation !== state.riskScanGeneration) throw new Error("RISK_SCAN_SUPERSEDED");
+              state.lastRiskDiagnostic = entry;
+              const kind = entry.quota_kind || entry.failure_type || `HTTP ${entry.http_status || "—"}`;
+              elements.statusText.textContent =
+                `Gemini ${kind} 暫停｜${info.remainingSeconds} 秒後重試` +
+                `｜目前球員 ${info.row?.熱門方 || "—"}` +
+                `｜已保存 ${info.completed}/${info.total}`;
+            },
+            onStop: async (entry, info) => {
+              state.lastRiskDiagnostic = entry;
+              elements.statusLine.classList.add("error");
+              elements.statusText.textContent =
+                `${entry.diagnostic_title || entry.summary || "Gemini 掃描停止"}` +
+                `｜已保存 ${info.completed}/${info.total}` +
+                `｜未完成 ${info.remaining}` +
+                `｜點擊右側風險狀態查看診斷`;
+              if (!elements.riskDialog.open) openRiskDialog(entry);
+            },
             onProgress: updateRiskStatus
           }
         );
@@ -1733,7 +1847,9 @@
 
       scanFailed =
         scanFailed ||
-        result.unresolved > 0;
+        result.unresolved > 0 ||
+        result.stoppedEarly;
+      if (result.stopEntry) state.lastRiskDiagnostic = result.stopEntry;
     } catch (error) {
       if (
         error?.message !==
@@ -1754,7 +1870,7 @@
         state.riskScanning = false;
         updateRiskStatus();
 
-        notifyWholeAnalysisComplete({
+        await notifyWholeAnalysisComplete({
           usedCache: false,
           failed: scanFailed
         });
@@ -1868,7 +1984,7 @@
         `分析風險失敗：${
           error?.message || String(error)
         }`;
-      notifyPipelineFailure(error);
+      await notifyPipelineFailure(error);
     } finally {
       setRunning(false);
     }
@@ -2098,7 +2214,7 @@
       elements.statusLine.classList.add("error");
       elements.statusText.textContent =
         `完整分析執行失敗：${error.message}`;
-      notifyPipelineFailure(error);
+      await notifyPipelineFailure(error);
     } finally {
       setRunning(false);
     }
@@ -2127,7 +2243,7 @@
       elements.statusLine.classList.add("error");
       elements.statusText.textContent =
         `目前清單完整分析失敗：${error.message}`;
-      notifyPipelineFailure(error);
+      await notifyPipelineFailure(error);
     } finally {
       setRunning(false);
     }
@@ -2919,7 +3035,7 @@
         elements.statusLine.classList.add("error");
         elements.statusText.textContent =
           `按鈕執行失敗：${error?.message || String(error)}`;
-        notifyPipelineFailure(error);
+        await notifyPipelineFailure(error);
         setRunning(false);
       }
     });
@@ -3026,6 +3142,12 @@
     if (!elements.geminiUsage?.contains(event.target)) setGeminiUsagePopover(false);
   });
 
+  [elements.riskStatus, elements.riskCacheStatus].forEach(node => {
+    node?.addEventListener("click", () => {
+      if (state.lastRiskDiagnostic) openRiskDialog(state.lastRiskDiagnostic);
+    });
+  });
+
   elements.chatToggle.setAttribute("aria-expanded", "false");
   elements.chatToggle.addEventListener("click", () => {
     setDrawer(!elements.drawer.classList.contains("open"));
@@ -3087,6 +3209,18 @@
       const analysisRows = Array.isArray(state.analysis?.matches)
         ? state.analysis.matches
         : [];
+      if (state.riskScanning) {
+        pending.body.textContent =
+          "風險掃描進行中；本次問答已排入共用佇列，將在整批風險掃描完成後執行。";
+        updateGeminiUsageOperationNote(
+          chatUsageOperationId,
+          "等待風險掃描完成"
+        );
+        while (state.riskScanning) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
       const result = await aiClient.ask(question, {
         payload: state.today,
         analysis: state.analysis,
@@ -3096,7 +3230,17 @@
         workerUrl: WORKER_URL,
         workerToken,
         externalRisk: state.externalRisk,
-        customSystemPrompt: aiSettings.systemPrompt
+        customSystemPrompt: aiSettings.systemPrompt,
+        onQueueState: info => {
+          if (info.state === "queued") {
+            updateGeminiUsageOperationNote(
+              chatUsageOperationId,
+              `Gemini 佇列等待中｜前方 ${info.position || 1} 個請求`
+            );
+          } else if (info.state === "running") {
+            updateGeminiUsageOperationNote(chatUsageOperationId, "Gemini 佇列執行中");
+          }
+        }
       });
 
       pending.message.classList.remove("pending");

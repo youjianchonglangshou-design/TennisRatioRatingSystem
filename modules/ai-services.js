@@ -11,7 +11,12 @@
   const MAX_OVERVIEW_MATCHES = 80;
   const MAX_REQUEST_BYTES = 28000;
   const REQUEST_TIMEOUT_MS = 90000;
-  const RISK_SCAN_DELAY_MS = 900;
+  const RISK_SCAN_DELAY_MIN_MS = 30000;
+  const RISK_SCAN_DELAY_MAX_MS = 35000;
+  const RISK_MAX_ATTEMPTS = 2;
+  const RETRY_UNKNOWN_429_SECONDS = 90;
+  const RETRY_503_SECONDS = 30;
+  const RETRY_NETWORK_SECONDS = 20;
   const RISK_RESOLVED_CACHE_HOURS = 6;
   const RISK_LOOKBACK_DAYS = 90;
 
@@ -20,6 +25,98 @@
     "你可以回答一般問題，也可以使用 Google Search 查詢即時外網資訊。凡涉及近期新聞、球員傷病、退賽、賽程、比賽結果或其他可能變動的資訊，優先使用搜尋並列出來源。" +
     "當問題涉及 TennisRatio 時，系統提供的 Pinnacle 與 ratio_analysis.json 是唯一主要資料，不得捏造賠率、勝率、評級、D值、五項比較或球員數據。" +
     "外網消息是獨立風險因子，不得取代 Pinnacle 賠率，也不得描述成必然賽果。";
+
+
+  // 左側問答與風險掃描共用同一條 Gemini 請求佇列。
+  // 即使未來 UI 開放同時操作，同一時間仍只會送出 1 個 Gemini HTTP 請求。
+  let geminiQueueTail = Promise.resolve();
+  let geminiQueueTicket = 0;
+  let geminiQueueDepth = 0;
+
+  async function runWithCrossTabGeminiLock(task) {
+    const locks = global?.navigator?.locks;
+    if (locks && typeof locks.request === "function") {
+      return locks.request(
+        "tennisratio-gemini-request",
+        { mode: "exclusive" },
+        task
+      );
+    }
+    return task();
+  }
+
+  function emitQueueState(callback, detail) {
+    if (typeof callback !== "function") return;
+    Promise.resolve(callback(detail)).catch(error => {
+      console.info("Gemini 佇列狀態更新失敗。", error);
+    });
+  }
+
+  function enqueueGeminiRequest(task, options = {}) {
+    const ticket = ++geminiQueueTicket;
+    const ahead = geminiQueueDepth;
+    geminiQueueDepth += 1;
+    if (ahead > 0) {
+      emitQueueState(options.onQueueState, {
+        state: "queued",
+        ticket,
+        position: ahead,
+        queueDepth: geminiQueueDepth
+      });
+    }
+
+    const run = async () => {
+      if (typeof options.onQueueState === "function") {
+        await options.onQueueState({
+          state: "running",
+          ticket,
+          position: 0,
+          queueDepth: geminiQueueDepth
+        });
+      }
+      try {
+        return await runWithCrossTabGeminiLock(task);
+      } finally {
+        geminiQueueDepth = Math.max(0, geminiQueueDepth - 1);
+        if (typeof options.onQueueState === "function") {
+          await options.onQueueState({
+            state: "idle",
+            ticket,
+            position: 0,
+            queueDepth: geminiQueueDepth
+          });
+        }
+      }
+    };
+    const current = geminiQueueTail.then(run, run);
+    geminiQueueTail = current.catch(() => undefined);
+    return current;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+  }
+
+  function randomInteger(min, max) {
+    const low = Math.ceil(Number(min) || 0);
+    const high = Math.floor(Number(max) || low);
+    return low + Math.floor(Math.random() * Math.max(1, high - low + 1));
+  }
+
+  async function waitWithCountdown(milliseconds, callback, context = {}) {
+    const endAt = Date.now() + Math.max(0, Number(milliseconds) || 0);
+    let previous = null;
+    while (true) {
+      const remainingMs = Math.max(0, endAt - Date.now());
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      if (remainingSeconds !== previous && typeof callback === "function") {
+        await callback({ ...context, remainingSeconds, endAt });
+        previous = remainingSeconds;
+      }
+      if (remainingMs <= 0) break;
+      await sleep(Math.min(1000, remainingMs));
+    }
+  }
 
 
 
@@ -412,7 +509,7 @@
 
   function isRiskCacheFresh(entry, row, nowMs = Date.now()) {
     if (!entry || !isRiskResolvedStatus(entry.status)) return false;
-    if (String(entry.risk_pipeline_version || "") !== "gemini-search-v1") return false;
+    if (String(entry.risk_pipeline_version || "") !== "gemini-search-safe-v2") return false;
     if (String(entry.match_key || "") !== externalRiskMatchKey(row)) return false;
     if (String(entry.hot_player || "") !== String(row?.熱門方 || "")) return false;
     if (String(entry.rating || "") !== String(row?.評級 || "")) return false;
@@ -539,6 +636,16 @@
     };
   }
 
+  function parseRetryAfterHeader(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) return Math.max(0, Math.ceil(numeric));
+    const date = Date.parse(raw);
+    if (Number.isFinite(date)) return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+    return null;
+  }
+
   async function fetchJson(url, options = {}) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs || REQUEST_TIMEOUT_MS);
@@ -563,8 +670,7 @@
         const error = new Error(`HTTP ${response.status}：${detail}`);
         error.httpStatus = response.status;
         error.payload = payload;
-        const retryAfter = Number(response.headers.get("Retry-After"));
-        error.retryAfterSeconds = Number.isFinite(retryAfter) ? retryAfter : null;
+        error.retryAfterSeconds = parseRetryAfterHeader(response.headers.get("Retry-After"));
         throw error;
       }
       return {
@@ -578,6 +684,7 @@
       if (error?.name === "AbortError") {
         const timeoutError = new Error("連線逾時，外部服務沒有在時間內回應。");
         timeoutError.httpStatus = null;
+        timeoutError.failureHint = "network_timeout";
         throw timeoutError;
       }
       throw error;
@@ -586,32 +693,288 @@
     }
   }
 
-  function riskFailure(error) {
-    const status = Number(error?.httpStatus);
-    if ([401, 403].includes(status)) {
+  function collectErrorStrings(value, output = [], depth = 0) {
+    if (depth > 8 || value == null) return output;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      output.push(String(value));
+      return output;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(item => collectErrorStrings(item, output, depth + 1));
+      return output;
+    }
+    if (typeof value === "object") {
+      Object.entries(value).forEach(([key, item]) => {
+        output.push(String(key));
+        collectErrorStrings(item, output, depth + 1);
+      });
+    }
+    return output;
+  }
+
+  function frontendGeminiErrorDiagnostic(error) {
+    const status = Number(error?.httpStatus) || null;
+    const normalized = error?.payload?.tennisratio_error;
+    if (normalized && typeof normalized === "object") {
       return {
-        status: "system_error",
-        failure_type: "auth_401_403",
-        summary: "外部風險掃描已停止：Gemini API Key、Worker Token 或權限驗證失敗。",
-        impact: "這是系統設定問題，不是任何一位球員的風險。",
-        notes: "請檢查 Cloudflare Worker 的 GEMINI_API_KEY、UPLOAD_TOKEN 與權限設定。"
+        category: String(normalized.category || "unknown_error"),
+        httpStatus: status,
+        retryAfterSeconds: finiteNumber(normalized.retry_after_seconds) ?? error?.retryAfterSeconds ?? null,
+        quotaMetric: String(normalized.quota_metric || "") || null,
+        quotaId: String(normalized.quota_id || "") || null,
+        quotaValue: normalized.quota_value ?? null,
+        rawMessage: String(normalized.raw_message || error?.message || "")
       };
     }
+
+    const text = collectErrorStrings(error?.payload || {}).concat([error?.message || ""]).join(" ").toLowerCase();
+    let category = "unknown_error";
     if (status === 429) {
-      return {
-        status: "search_incomplete",
-        failure_type: "quota_429",
-        summary: "本場搜尋尚未完成：Gemini 目前達到使用量或頻率限制。",
-        impact: "這不是球員風險，也不能視為安全。",
-        notes: "下次按「分析風險」會重新嘗試。"
-      };
+      if (/google.?search|grounding/.test(text) && /(per.?day|daily|rpd|quota.?exceeded)/.test(text)) {
+        category = "quota_search_rpd";
+      } else if (/(token|input.?token|output.?token)/.test(text) && /(per.?minute|tpm)/.test(text)) {
+        category = "rate_limit_tpm";
+      } else if (/(request|generate.?request)/.test(text) && /(per.?minute|rpm)/.test(text)) {
+        category = "rate_limit_rpm";
+      } else if (/(per.?day|daily|rpd|quota.?exceeded)/.test(text)) {
+        category = "quota_model_rpd";
+      } else {
+        category = "rate_limit_unknown_429";
+      }
+    } else if (status === 503 || status === 500 || status === 502 || status === 504) {
+      category = status === 503 ? "service_unavailable_503" : "service_unavailable_5xx";
+    } else if ([401, 403].includes(status)) {
+      category = /location.+not supported|unsupported.+location|region/.test(text)
+        ? "location_unsupported"
+        : "auth_401_403";
+    } else if (status === 404) {
+      category = "model_unavailable_404";
+    } else if (status === 413) {
+      category = "request_too_large_413";
+    } else if (!status || error?.failureHint === "network_timeout") {
+      category = "network_timeout";
     }
     return {
+      category,
+      httpStatus: status,
+      retryAfterSeconds: error?.retryAfterSeconds ?? null,
+      quotaMetric: null,
+      quotaId: null,
+      quotaValue: null,
+      rawMessage: String(error?.message || "")
+    };
+  }
+
+  function failureDetails(category, diagnostic) {
+    const retryAfter = finiteNumber(diagnostic.retryAfterSeconds);
+    const quotaLines = [
+      diagnostic.quotaMetric ? `Quota metric：${diagnostic.quotaMetric}` : "",
+      diagnostic.quotaId ? `Quota ID：${diagnostic.quotaId}` : "",
+      diagnostic.quotaValue != null ? `Quota value：${diagnostic.quotaValue}` : ""
+    ].filter(Boolean);
+
+    const map = {
+      rate_limit_rpm: {
+        status: "search_incomplete",
+        failure_type: "rate_limit_rpm",
+        summary: "Gemini 每分鐘請求限制（RPM）",
+        impact: "短時間內送出的 Gemini 請求次數過多；這不是每日額度用完，也不是球員風險。",
+        notes: "系統已暫停整批掃描，等待後只會重試目前球員一次。",
+        diagnostic_title: "⚠ Gemini 每分鐘請求限制（RPM）",
+        diagnostic_lines: ["短時間內的請求次數超過專案目前限制。", "已完成結果會立即保存在 R2。", ...quotaLines],
+        retryable: true,
+        retry_wait_seconds: retryAfter ?? RETRY_UNKNOWN_429_SECONDS,
+        stop_batch: false,
+        quota_kind: "RPM"
+      },
+      rate_limit_tpm: {
+        status: "search_incomplete",
+        failure_type: "rate_limit_tpm",
+        summary: "Gemini 每分鐘 Token 限制（TPM）",
+        impact: "最近一分鐘處理的文字與搜尋內容量過高；這不是每日搜尋次數用完。",
+        notes: "系統等待後會改用精簡提示詞，只重試目前球員一次。",
+        diagnostic_title: "⚠ Gemini 每分鐘 Token 限制（TPM）",
+        diagnostic_lines: ["最近一分鐘的 Token 處理量超過專案目前限制。", "第二次請求會使用精簡提示詞。", ...quotaLines],
+        retryable: true,
+        retry_wait_seconds: retryAfter ?? RETRY_UNKNOWN_429_SECONDS,
+        stop_batch: false,
+        quota_kind: "TPM"
+      },
+      quota_model_rpd: {
+        status: "search_incomplete",
+        failure_type: "quota_model_rpd",
+        summary: "Gemini 今日模型請求額度已達上限（RPD）",
+        impact: "這是每日額度，不是暫時的 RPM 限制；本輪不會自動重試。",
+        notes: "請等待太平洋時間午夜重置；頁面會換算成台灣時間倒數。",
+        diagnostic_title: "⛔ Gemini 今日模型請求額度已滿（RPD）",
+        diagnostic_lines: ["本輪掃描立即停止。", "已完成結果全部保留。", ...quotaLines],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: "RPD"
+      },
+      quota_search_rpd: {
+        status: "search_incomplete",
+        failure_type: "quota_search_rpd",
+        summary: "Google Search Grounding 今日額度已達上限",
+        impact: "Gemini 一般文字功能可能仍可用，但目前無法繼續執行外部網路搜尋。",
+        notes: "本輪不會重試；請等待每日搜尋額度重置。",
+        diagnostic_title: "⛔ Google Search Grounding 今日額度已滿",
+        diagnostic_lines: ["外部風險搜尋已停止。", "已完成結果全部保留。", ...quotaLines],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: "Search RPD"
+      },
+      rate_limit_unknown_429: {
+        status: "search_incomplete",
+        failure_type: "rate_limit_unknown_429",
+        summary: "Gemini 暫時受到使用限制（HTTP 429）",
+        impact: "Google 沒有提供足以確認 RPM、TPM 或 RPD 的欄位；這不能直接解讀成每日額度用完。",
+        notes: "系統等待 90 秒後，只重試目前球員一次。",
+        diagnostic_title: "⚠ Gemini 429 限制種類無法確認",
+        diagnostic_lines: ["可能是每分鐘請求數、每分鐘 Token 或專案暫時限制。", "第二次仍失敗時會停止整批，避免持續撞 API。", ...quotaLines],
+        retryable: true,
+        retry_wait_seconds: retryAfter ?? RETRY_UNKNOWN_429_SECONDS,
+        stop_batch: false,
+        quota_kind: "429 未辨識"
+      },
+      service_unavailable_503: {
+        status: "search_incomplete",
+        failure_type: "service_unavailable_503",
+        summary: "Gemini 服務暫時壅塞（HTTP 503）",
+        impact: "這不是你的 RPM、RPD 或 Google Search 額度用完。",
+        notes: "系統會等待 30 秒，並只重試目前球員一次。",
+        diagnostic_title: "⚠ Gemini 服務暫時壅塞（HTTP 503）",
+        diagnostic_lines: ["Google 服務目前暫時無法處理請求。", "已完成結果不受影響。"],
+        retryable: true,
+        retry_wait_seconds: retryAfter ?? RETRY_503_SECONDS,
+        stop_batch: false,
+        quota_kind: null
+      },
+      service_unavailable_5xx: {
+        status: "search_incomplete",
+        failure_type: "service_unavailable_5xx",
+        summary: "Gemini 上游服務暫時錯誤",
+        impact: "這不是已確認的額度問題。",
+        notes: "系統會等待 30 秒，並只重試目前球員一次。",
+        diagnostic_title: "⚠ Gemini 上游服務暫時錯誤",
+        diagnostic_lines: ["Google 或 Cloudflare 上游暫時無法完成請求。", "已完成結果不受影響。"],
+        retryable: true,
+        retry_wait_seconds: retryAfter ?? RETRY_503_SECONDS,
+        stop_batch: false,
+        quota_kind: null
+      },
+      network_timeout: {
+        status: "search_incomplete",
+        failure_type: "network_timeout",
+        summary: "網路或 Cloudflare Worker 連線逾時",
+        impact: "Gemini 尚未回傳有效結果；這不是已確認的額度問題。",
+        notes: "系統會等待 20 秒，並只重試目前球員一次。",
+        diagnostic_title: "⚠ 網路或 Worker 連線逾時",
+        diagnostic_lines: ["目前球員尚未完成查證。", "已完成結果不受影響。"],
+        retryable: true,
+        retry_wait_seconds: RETRY_NETWORK_SECONDS,
+        stop_batch: false,
+        quota_kind: null
+      },
+      auth_401_403: {
+        status: "system_error",
+        failure_type: "auth_401_403",
+        summary: "Gemini API Key、Worker Token 或專案權限錯誤",
+        impact: "這是系統設定問題，不是球員風險。",
+        notes: "請檢查 Cloudflare Worker 的 GEMINI_API_KEY、UPLOAD_TOKEN 與 Google 專案權限。",
+        diagnostic_title: "⛔ Gemini API Key 或權限錯誤",
+        diagnostic_lines: ["可能原因：API Key 無效、API 未啟用、Key 限制或專案權限不足。", "本輪掃描停止，不會自動重試。"],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: null
+      },
+      location_unsupported: {
+        status: "system_error",
+        failure_type: "location_unsupported",
+        summary: "Gemini API 不支援目前請求位置",
+        impact: "這不是額度問題，也不是 RPM 限制。",
+        notes: "請求由 Cloudflare Worker 所在位置送出，Google 拒絕該地區使用。",
+        diagnostic_title: "⛔ Gemini API 目前不支援此請求位置",
+        diagnostic_lines: ["本輪掃描停止，不會自動重試。", "請檢查 Worker 路由或執行地區。"],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: null
+      },
+      model_unavailable_404: {
+        status: "system_error",
+        failure_type: "model_unavailable_404",
+        summary: "Gemini 模型目前不可用",
+        impact: "可能是模型名稱失效、模型已停用，或目前專案沒有權限。",
+        notes: `請檢查模型名稱：${RISK_MODEL}。`,
+        diagnostic_title: "⛔ Gemini 模型目前不可用",
+        diagnostic_lines: [`模型：${RISK_MODEL}`, "本輪掃描停止，不會自動重試。"],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: null
+      },
+      request_too_large_413: {
+        status: "system_error",
+        failure_type: "request_too_large_413",
+        summary: "Gemini 請求資料過大（HTTP 413）",
+        impact: "這不是額度問題；目前球員的請求內容超過上游可接受大小。",
+        notes: "請檢查 Worker 提示詞與傳送欄位；本輪停止，避免重複送出相同大請求。",
+        diagnostic_title: "⛔ Gemini 請求資料過大（HTTP 413）",
+        diagnostic_lines: ["本輪掃描停止，不會自動重試。"],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: null
+      },
+      configuration_error: {
+        status: "system_error",
+        failure_type: "configuration_error",
+        summary: "Cloudflare Worker 的 Gemini 設定尚未完成",
+        impact: "這是系統設定問題，不是球員風險。",
+        notes: "請確認 GEMINI_API_KEY Secret 已建立並重新 Deploy Worker。",
+        diagnostic_title: "⛔ Gemini 設定尚未完成",
+        diagnostic_lines: ["本輪掃描停止，不會自動重試。"],
+        retryable: false,
+        retry_wait_seconds: 0,
+        stop_batch: true,
+        quota_kind: null
+      }
+    };
+    return map[category] || {
       status: "search_incomplete",
-      failure_type: "network_timeout",
-      summary: "本場搜尋尚未完成：Gemini 或網路暫時沒有完成回應。",
-      impact: "這不是球員風險，也不能視為安全。",
-      notes: "下次按「分析風險」會重新嘗試。"
+      failure_type: "unknown_error",
+      summary: "Gemini 或網路沒有完成本場搜尋",
+      impact: "目前無法確認是額度、網路或上游服務問題。",
+      notes: "本輪停止，避免在原因不明時持續撞 API。",
+      diagnostic_title: "⚠ Gemini 未知錯誤",
+      diagnostic_lines: [diagnostic.rawMessage || "上游沒有提供可辨識的錯誤資訊。"],
+      retryable: false,
+      retry_wait_seconds: 0,
+      stop_batch: true,
+      quota_kind: null
+    };
+  }
+
+  function riskFailure(error) {
+    const diagnostic = frontendGeminiErrorDiagnostic(error);
+    const rawText = String(diagnostic.rawMessage || "").toLowerCase();
+    let category = diagnostic.category;
+    if (/尚未設定 gemini_api_key|gemini 設定尚未完成|cloudflare worker 尚未設定 gemini_api_key/.test(rawText)) {
+      category = "configuration_error";
+    }
+    const detail = failureDetails(category, diagnostic);
+    return {
+      ...detail,
+      http_status: diagnostic.httpStatus,
+      retry_after_seconds: diagnostic.retryAfterSeconds,
+      quota_metric: diagnostic.quotaMetric,
+      quota_id: diagnostic.quotaId,
+      quota_value: diagnostic.quotaValue,
+      technical_error: diagnostic.rawMessage
     };
   }
 
@@ -634,31 +997,37 @@
     }
     const match = compactRiskMatch(row);
     const checkedAt = new Date();
+    const attempt = Math.max(1, Number(options.attempt || 1));
     try {
-      const response = await fetchJson(`${options.workerUrl}${GEMINI_RISK_PATH}`, {
-        token: options.workerToken,
-        fetchImpl: options.fetchImpl,
-        body: {
-          match
-        }
-      });
+      const response = await enqueueGeminiRequest(
+        () => fetchJson(`${options.workerUrl}${GEMINI_RISK_PATH}`, {
+          token: options.workerToken,
+          fetchImpl: options.fetchImpl,
+          body: {
+            match,
+            retry_mode: options.compactRetry ? "compact" : "normal"
+          }
+        }),
+        { onQueueState: options.onQueueState }
+      );
       const answer = geminiText(response.payload);
       const grounding = geminiGrounding(response.payload);
       let parsed = parseRiskResponse(answer);
 
-      // Search information must never be hidden because of formatting.
+      // 搜尋已完成但格式不完整時，不再浪費第二次請求。
+      // 保留原始中文內容並轉為人工判讀。
       if (!parsed) {
         parsed = {
           status: "manual_review",
           severity: "unknown",
           confidence: 0.35,
           summary: grounding.sources.length
-            ? "Gemini 已找到近期資訊，但回覆格式無法完整分類，請人工判讀。"
+            ? "Gemini 已完成搜尋，但回覆格式不完整，請人工判讀。"
             : "Gemini 已提供資訊，但沒有足夠來源可確認風險。",
           impact: "下方保留本次完整回覆與可用來源，不會因格式問題而隱藏資訊。",
           findings: [],
           evidence: [],
-          notes: "未列為紅色警示不等於已確認安全。",
+          notes: "格式異常不會觸發重試，以免浪費一次搜尋請求；未列為紅色警示不等於已確認安全。",
           raw_summary: answer
         };
       }
@@ -670,7 +1039,6 @@
       let notes = parsed.notes;
       const findings = parsed.findings;
 
-      // A clear result without actual Google Search grounding cannot be treated as confirmed clear.
       if (status === "clear" && !grounding.sources.length && !grounding.queries.length) {
         status = "manual_review";
         severity = "unknown";
@@ -722,8 +1090,9 @@
         model: response.payload?.model || RISK_MODEL,
         requested_model: RISK_MODEL,
         search_mode: "gemini_2_5_flash_google_search",
-        risk_pipeline_version: "gemini-search-v1",
-        retry_count: 0,
+        risk_pipeline_version: "gemini-search-safe-v2",
+        retry_count: attempt - 1,
+        attempt_count: attempt,
         request_bytes: response.requestBytes,
         usage: response.payload?.usageMetadata || {}
       };
@@ -740,18 +1109,16 @@
         sources: [],
         web_search_queries: [],
         search_completed: false,
-        http_status: Number(error?.httpStatus) || null,
-        retry_after_seconds: error?.retryAfterSeconds ?? null,
         cache_hours: 0,
         cache_until: null,
         used_cache: false,
-        technical_error: error?.message || String(error),
         checked_at: checkedAt.toISOString(),
         model: RISK_MODEL,
         requested_model: RISK_MODEL,
         search_mode: "gemini_2_5_flash_google_search",
-        risk_pipeline_version: "gemini-search-v1",
-        retry_count: 0,
+        risk_pipeline_version: "gemini-search-safe-v2",
+        retry_count: attempt - 1,
+        attempt_count: attempt,
         request_bytes: 0
       };
     }
@@ -783,86 +1150,186 @@
     const playerMap = new Map();
     for (const entry of existingEntries) {
       if (!isRiskResolvedStatus(entry?.status)) continue;
-      if (String(entry?.risk_pipeline_version || "") !== "gemini-search-v1") continue;
+      if (String(entry?.risk_pipeline_version || "") !== "gemini-search-safe-v2") continue;
       const checkedAt = Date.parse(String(entry?.checked_at || ""));
       if (!Number.isFinite(checkedAt) || nowMs - checkedAt > RISK_RESOLVED_CACHE_HOURS * 3600000) continue;
       playerMap.set(normalizeRiskKeyPart(entry?.hot_player), entry);
     }
 
-    const entries = [];
-    let completed = 0;
-    let scanned = 0;
-    let cached = 0;
-
-    for (const row of eligibleRows) {
+    function cachedEntryForRow(row) {
       const key = externalRiskMatchKey(row);
       const oldEntry = existingMap.get(key);
-      let entry = null;
-      let fromCache = false;
-
       if (isRiskCacheFresh(oldEntry, row, nowMs)) {
-        entry = { ...oldEntry, used_cache: true, last_used_at: new Date().toISOString() };
-        cached += 1;
-        fromCache = true;
-      } else {
-        const playerKey = normalizeRiskKeyPart(row?.熱門方);
-        const playerEntry = playerMap.get(playerKey);
-        if (playerEntry && isRiskResolvedStatus(playerEntry.status)) {
-          entry = clonePlayerRisk(playerEntry, row, true);
-          cached += 1;
-          fromCache = true;
-        }
+        return { entry: { ...oldEntry, used_cache: true, last_used_at: new Date().toISOString() }, fromCache: true };
       }
+      const playerEntry = playerMap.get(normalizeRiskKeyPart(row?.熱門方));
+      if (playerEntry && isRiskResolvedStatus(playerEntry.status)) {
+        return { entry: clonePlayerRisk(playerEntry, row, true), fromCache: true };
+      }
+      return { entry: null, fromCache: false };
+    }
 
-      if (!entry) {
+    function nextApiRow(startIndex) {
+      for (let index = startIndex; index < eligibleRows.length; index += 1) {
+        if (!cachedEntryForRow(eligibleRows[index]).entry) return eligibleRows[index];
+      }
+      return null;
+    }
+
+    const entries = [];
+    let completed = 0;
+    let apiAttempts = 0;
+    let scannedPlayers = 0;
+    let cached = 0;
+    let stoppedEarly = false;
+    let stopEntry = null;
+
+    for (let rowIndex = 0; rowIndex < eligibleRows.length; rowIndex += 1) {
+      const row = eligibleRows[rowIndex];
+      let { entry, fromCache } = cachedEntryForRow(row);
+
+      if (entry) {
+        cached += 1;
+      } else {
         if (typeof options.onPending === "function") {
           await options.onPending(row, { completed, total: eligibleRows.length });
         }
-        entry = await scanExternalRisk(row, options);
-        scanned += 1;
-        if (isRiskResolvedStatus(entry.status)) {
+
+        scannedPlayers += 1;
+        let attempt = 1;
+        let previousFailure = null;
+        while (attempt <= RISK_MAX_ATTEMPTS) {
+          entry = await scanExternalRisk(row, {
+            ...options,
+            attempt,
+            compactRetry: previousFailure?.failure_type === "rate_limit_tpm"
+          });
+          apiAttempts += 1;
+
+          if (isRiskResolvedStatus(entry.status)) break;
+
+          const retryable = Boolean(entry.retryable);
+          if (!retryable || attempt >= RISK_MAX_ATTEMPTS) {
+            if (attempt >= RISK_MAX_ATTEMPTS && retryable) {
+              entry = {
+                ...entry,
+                stop_batch: true,
+                notes: `${entry.notes || ""} 第二次仍失敗，本輪停止，避免持續撞 API。`.trim(),
+                diagnostic_lines: [
+                  ...(Array.isArray(entry.diagnostic_lines) ? entry.diagnostic_lines : []),
+                  "第二次嘗試仍未成功；未完成球員保留到下一輪。"
+                ]
+              };
+            }
+            stoppedEarly = Boolean(entry.stop_batch);
+            if (stoppedEarly) stopEntry = entry;
+            break;
+          }
+
+          const waitSeconds = Math.max(1, Number(entry.retry_wait_seconds || entry.retry_after_seconds || RETRY_UNKNOWN_429_SECONDS));
+          if (typeof options.onRetryWait === "function") {
+            await waitWithCountdown(waitSeconds * 1000, async info => {
+              await options.onRetryWait(entry, {
+                ...info,
+                row,
+                attempt,
+                completed,
+                total: eligibleRows.length
+              });
+            });
+          } else {
+            await sleep(waitSeconds * 1000);
+          }
+          previousFailure = entry;
+          attempt += 1;
+        }
+
+        if (isRiskResolvedStatus(entry?.status)) {
           playerMap.set(normalizeRiskKeyPart(entry.hot_player), entry);
         }
-        if (typeof options.onEntry === "function") {
-          await options.onEntry(entry, {
-            completed: completed + 1,
-            total: eligibleRows.length,
-            scanned,
-            cached,
-            row,
-            fromCache: false
-          });
-        }
-        const delay = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : RISK_SCAN_DELAY_MS;
-        if (delay > 0 && completed + 1 < eligibleRows.length) {
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
+      }
+
+      if (stoppedEarly && entry) {
+        const savedBeforeStop = entries.filter(candidate =>
+          isRiskResolvedStatus(candidate?.status)
+        ).length;
+        entry = {
+          ...entry,
+          scan_total: eligibleRows.length,
+          scan_saved: savedBeforeStop,
+          scan_remaining: eligibleRows.length - savedBeforeStop,
+          scan_current_player: String(row?.熱門方 || entry?.hot_player || "")
+        };
+        stopEntry = entry;
       }
 
       entries.push(entry);
       completed += 1;
-      if (fromCache && typeof options.onEntry === "function") {
+
+      if (typeof options.onEntry === "function") {
         await options.onEntry(entry, {
           completed,
           total: eligibleRows.length,
-          scanned,
+          scanned: apiAttempts,
+          scannedPlayers,
           cached,
           row,
-          fromCache: true
+          fromCache
         });
       }
       if (typeof options.onProgress === "function") {
-        options.onProgress({ completed, total: eligibleRows.length, scanned, cached, row, entry, fromCache });
+        options.onProgress({ completed, total: eligibleRows.length, scanned: apiAttempts, scannedPlayers, cached, row, entry, fromCache });
+      }
+
+      if (stoppedEarly) {
+        if (typeof options.onStop === "function") {
+          await options.onStop(stopEntry, {
+            completed: Number(stopEntry?.scan_saved || 0),
+            processed: completed,
+            total: eligibleRows.length,
+            remaining: Number(stopEntry?.scan_remaining || (eligibleRows.length - completed)),
+            row
+          });
+        }
+        break;
+      }
+
+      if (!fromCache && isRiskResolvedStatus(entry?.status)) {
+        const nextRow = nextApiRow(rowIndex + 1);
+        if (nextRow) {
+          const cooldownMs = randomInteger(
+            Number(options.delayMinMs) || RISK_SCAN_DELAY_MIN_MS,
+            Number(options.delayMaxMs) || RISK_SCAN_DELAY_MAX_MS
+          );
+          if (typeof options.onCooldown === "function") {
+            await waitWithCountdown(cooldownMs, async info => {
+              await options.onCooldown({
+                ...info,
+                completed,
+                total: eligibleRows.length,
+                currentRow: row,
+                nextRow
+              });
+            });
+          } else {
+            await sleep(cooldownMs);
+          }
+        }
       }
     }
 
+    const remaining = eligibleRows.length - completed;
     return {
       entries,
       total: eligibleRows.length,
       completed,
-      scanned,
+      scanned: apiAttempts,
+      scannedPlayers,
       cached,
-      unresolved: entries.filter(entry => !isRiskResolvedStatus(entry.status)).length
+      stoppedEarly,
+      stopEntry,
+      remaining,
+      unresolved: entries.filter(entry => !isRiskResolvedStatus(entry.status)).length + remaining
     };
   }
 
@@ -941,11 +1408,14 @@
       throw new Error(`Gemini 請求資料仍過大（${bytes} bytes）；請指定項次或縮小問題範圍。`);
     }
 
-    const response = await fetchJson(`${options.workerUrl}${GEMINI_CHAT_PATH}`, {
-      token: options.workerToken,
-      fetchImpl: options.fetchImpl,
-      body
-    });
+    const response = await enqueueGeminiRequest(
+      () => fetchJson(`${options.workerUrl}${GEMINI_CHAT_PATH}`, {
+        token: options.workerToken,
+        fetchImpl: options.fetchImpl,
+        body
+      }),
+      { onQueueState: options.onQueueState }
+    );
     const grounding = geminiGrounding(response.payload);
 
     return {
@@ -985,6 +1455,10 @@
     geminiGrounding,
     scanExternalRisk,
     scanExternalRisks,
-    ask
+    ask,
+    RISK_SCAN_DELAY_MIN_MS,
+    RISK_SCAN_DELAY_MAX_MS,
+    frontendGeminiErrorDiagnostic,
+    riskFailure
   });
 })(typeof window !== "undefined" ? window : globalThis);
