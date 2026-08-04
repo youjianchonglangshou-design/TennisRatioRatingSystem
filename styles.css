@@ -1039,3 +1039,89 @@ table.main{
 @media(max-width:850px){
   .gemini-usage-board{margin-top:7px;min-width:0;width:100%}.gemini-usage-row{grid-template-columns:1fr 16px;gap:6px}.gemini-usage-model{grid-column:1}.gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}.gemini-usage-help{grid-column:2;grid-row:1}
 }
+
+
+/* Gemini Unified Usage Hotfix3：右側三框齊高、收緊問號距離、用量框靠攏時間框 */
+:root{--header-status-height:24px}
+.app-head{
+  column-gap:5px;
+}
+.app-head .brand{
+  flex:1 1 auto;
+  min-width:0;
+}
+.gemini-usage-board{
+  flex:0 1 auto;
+  min-width:0;
+  max-width:min(780px,58vw);
+  height:var(--header-status-height);
+  margin-left:auto;
+  padding:0 7px;
+  display:flex;
+  align-items:center;
+  border-radius:6px;
+}
+.gemini-usage-row{
+  width:100%;
+  min-height:0;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  gap:5px;
+  white-space:nowrap;
+}
+.gemini-usage-model{
+  flex:0 0 auto;
+}
+.gemini-usage-rpd{
+  flex:0 1 auto;
+  min-width:0;
+}
+.gemini-usage-help{
+  flex:0 0 14px;
+  width:14px;
+  height:14px;
+  margin-left:2px;
+  font-size:9px;
+  box-shadow:0 0 4px #ff546624;
+}
+.app-head .time-stack{
+  align-self:center;
+  gap:5px;
+}
+.app-head .generated{
+  height:var(--header-status-height);
+  padding:0 7px;
+  display:inline-flex;
+  align-items:center;
+  border-radius:6px;
+  line-height:1;
+}
+
+@media(max-width:1250px){
+  .gemini-usage-board{
+    order:3;
+    flex-basis:100%;
+    width:100%;
+    max-width:none;
+    margin-left:0;
+  }
+}
+@media(max-width:850px){
+  .gemini-usage-board{
+    height:auto;
+    min-height:var(--header-status-height);
+    margin-top:7px;
+  }
+  .gemini-usage-row{
+    display:grid;
+    grid-template-columns:1fr 14px;
+    gap:4px 6px;
+    padding:4px 0;
+    white-space:normal;
+  }
+  .gemini-usage-model{grid-column:1;grid-row:1}
+  .gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}
+  .gemini-usage-help{grid-column:2;grid-row:1;margin-left:0}
+}
