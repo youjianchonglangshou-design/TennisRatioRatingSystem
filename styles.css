@@ -917,3 +917,20 @@ table.main{
   white-space:pre-wrap;
   overflow-wrap:anywhere;
 }
+
+
+/* Gemini browser-direct chat + usage meter */
+.chat-usage{
+  padding:7px 13px;
+  border-bottom:1px solid #19334a;
+  background:#081321;
+  color:#8da9bd;
+  font-size:10px;
+  line-height:1.45;
+  white-space:normal;
+}
+.chat-usage strong{color:#bff4ff}
+.chat-usage .usage-search{color:#f1cc72}
+.settings-field .password-wrap{display:flex;gap:6px;align-items:center}
+.settings-field .password-wrap input{flex:1;min-width:0}
+.settings-field .password-wrap .chat-icon{flex:0 0 36px;width:36px;height:38px}

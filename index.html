@@ -2,18 +2,19 @@
 
 <html lang="zh-Hant"><head><meta charset="utf-8"/>
 <meta content="width=device-width,initial-scale=1" name="viewport"/>
-<title>TennisRatio｜Gemini 2.5 Flash</title><link href="./styles.css?v=gemini-search-v1" rel="stylesheet"/></head>
+<title>TennisRatio｜Gemini 2.5 Flash</title><link href="./styles.css?v=gemini-web-chat-v1" rel="stylesheet"/></head>
 <body data-analysis-ready="0" data-revision="0" data-runtime="github-pages-phase3-source-pipeline">
 <div class="app-shell" id="app-shell">
 <aside aria-hidden="true" class="chat-drawer" id="chat-drawer">
 <div class="chat-inner">
 <div class="chat-head">
-<div class="chat-head-main"><h2>✦ TennisRatio AI</h2><small id="chat-model-label">gemini-2.5-flash</small></div>
+<div class="chat-head-main"><h2>✦ TennisRatio Gemini</h2><small id="chat-model-label">gemini-2.5-flash｜Google Search</small></div>
 <div class="chat-head-actions"><button class="chat-icon" id="chat-new" title="新對話" type="button">＋</button><button class="chat-icon" id="chat-settings" title="模型設定" type="button">⚙</button><button aria-label="關閉" class="chat-icon" id="chat-close" type="button">×</button></div>
 </div>
-<div class="chat-context"><i></i><span id="chat-context-text">分析資料載入中｜單場問題只傳相關場次，不傳整份巢狀 JSON</span></div>
-<div aria-live="polite" class="chat-log" id="chat-log"><div class="chat-welcome" id="chat-welcome"><strong>網球賽事分析已就緒</strong>可詢問指定項次、球員、傷病、近期賽程或整批排行。系統內資料由 JavaScript 直接回答；A／B熱門方的近期風險與複雜解釋使用 Gemini 2.5 Flash。外部風險會啟用 Google Search 並列出來源。</div></div>
-<div class="chat-composer"><textarea class="chat-input" id="chat-input" placeholder="例如：項次3是否有傷病、退賽或近期疲勞風險？"></textarea><div class="chat-actions"><span class="chat-actions-note">Enter 傳送｜Shift+Enter 換行</span><button class="control chat-send" id="chat-send" type="button">送出</button></div></div>
+<div class="chat-context"><i></i><span id="chat-context-text">Gemini 2.5 Flash｜Google Search 可用｜瀏覽器直連</span></div>
+<div class="chat-usage" id="chat-usage">本配額日：0 次｜0 tokens｜免費搜尋額度本機估算剩餘 500/500</div>
+<div aria-live="polite" class="chat-log" id="chat-log"><div class="chat-welcome" id="chat-welcome"><strong>Gemini 網路問答已就緒</strong>左側問答不受 A／B 或 65% 條件限制。可詢問任何項次、球員、近期消息或一般問題；Gemini 2.5 Flash 可使用 Google Search，找到來源時會列在回答下方。</div></div>
+<div class="chat-composer"><textarea class="chat-input" id="chat-input" placeholder="例如：項次24熱門方近期有沒有不利消息？"></textarea><div class="chat-actions"><span class="chat-actions-note">Enter 傳送｜Shift+Enter 換行</span><button class="control chat-send" id="chat-send" type="button">送出</button></div></div>
 </div>
 </aside>
 <main class="page">
@@ -45,9 +46,10 @@
 </div>
 <dialog class="settings-dialog" id="ai-settings-dialog">
 <form class="settings-card" id="ai-settings-form" method="dialog">
-<div class="settings-head"><div><h2>AI設定</h2><p>Gemini API Key 由 Cloudflare Worker Secret 管理；模型固定使用 gemini-2.5-flash。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
-<label class="settings-field"><span>模型分工</span><input id="ai-model" type="text" value="gemini-2.5-flash" readonly/><small>外部風險：gemini-2.5-flash＋Google Search｜深入追問：gemini-2.5-flash｜系統內簡單問題：JavaScript。</small></label>
-<label class="settings-field"><span>系統提示詞</span><textarea id="ai-system-prompt"></textarea><small>只影響 Gemini 深入追問；外部風險搜尋使用固定規則，不受此欄位改動。</small></label>
+<div class="settings-head"><div><h2>AI設定</h2><p>左側問答由目前瀏覽器直接連線 Gemini，避開 Cloudflare Worker 的地區判定。</p></div><button class="chat-icon" id="settings-close" type="button">×</button></div>
+<label class="settings-field"><span>模型</span><input id="ai-model" type="text" value="gemini-2.5-flash" readonly/><small>左側問答固定使用 gemini-2.5-flash，並提供 Google Search。</small></label>
+<label class="settings-field"><span>Gemini API Key</span><div class="password-wrap"><input id="ai-api-key" type="password" autocomplete="off" placeholder="貼上 Google AI Studio API Key"/><button class="chat-icon" id="ai-key-toggle" type="button" title="顯示或隱藏 API Key">👁</button></div><small>只保存在這台電腦的瀏覽器 localStorage，不會寫入 GitHub。Cloudflare 的 GEMINI_API_KEY Secret 仍供上方「分析風險」使用。</small></label>
+<label class="settings-field"><span>系統提示詞</span><textarea id="ai-system-prompt"></textarea><small>影響左側 Gemini 的回答方式；任何問題都可問，不受 A／B 風險掃描條件限制。</small></label>
 <div class="settings-actions"><span class="settings-status" id="settings-status"></span><button class="control" id="settings-cancel" type="button">取消</button><button class="control" type="submit">儲存設定</button></div>
 </form>
 </dialog>
@@ -63,4 +65,4 @@
 <button class="analysis-toast-close" id="analysis-toast-close" type="button" aria-label="關閉通知">×</button>
 </div>
 <div id="card"></div><div hidden="" id="templates-root"></div>
-<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=rating65-ab-gate-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/ai-services.js?v=gemini-search-v1"></script><script defer src="./app.js?v=gemini-search-v1"></script></body></html>
+<script defer src="./modules/pinnacle.js?v=external-risk-v1"></script><script defer src="./modules/data-services.js?v=external-risk-v1-hotfix2"></script><script defer src="./modules/analysis-engine.js?v=rating65-ab-gate-v1"></script><script defer src="./modules/renderer.js?v=external-risk-v1-hotfix6"></script><script defer src="./modules/ai-services.js?v=gemini-web-chat-v1"></script><script defer src="./app.js?v=gemini-web-chat-v1"></script></body></html>

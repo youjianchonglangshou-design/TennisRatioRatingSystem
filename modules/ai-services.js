@@ -4,6 +4,7 @@
   const CHAT_MODEL = "gemini-2.5-flash";
   const RISK_MODEL = "gemini-2.5-flash";
   const GEMINI_CHAT_PATH = "/gemini/chat";
+  const DIRECT_GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
   const GEMINI_RISK_PATH = "/gemini/player-risk";
   const MAX_HISTORY_MESSAGES = 4;
   const MAX_HISTORY_CHARS = 1200;
@@ -16,10 +17,9 @@
   const RISK_LOOKBACK_DAYS = 90;
 
   const DEFAULT_SYSTEM_PROMPT =
-    "你是 TennisRatio 網球賽事分析助理。全程使用繁體中文（台灣用語），回答清楚、精確、可覆盤。" +
-    "系統提供的 Pinnacle 與 ratio_analysis.json 是唯一主要資料，不得捏造賠率、勝率、評級、D值、五項比較或球員數據。" +
-    "單純數量、評級、EV與項次資料應由 JavaScript 直接回答；需要解釋時才使用 Gemini 2.5 Flash。" +
-    "A／B熱門方的近期傷病、退賽、短休與狀態風險，由 Gemini 2.5 Flash 搭配 Google Search 查證。" +
+    "你是一般用途的 Gemini 助理，同時熟悉 TennisRatio 網球賽事分析。全程使用繁體中文（台灣用語），回答清楚、精確、可覆盤。" +
+    "你可以回答一般問題，也可以使用 Google Search 查詢即時外網資訊。凡涉及近期新聞、球員傷病、退賽、賽程、比賽結果或其他可能變動的資訊，優先使用搜尋並列出來源。" +
+    "當問題涉及 TennisRatio 時，系統提供的 Pinnacle 與 ratio_analysis.json 是唯一主要資料，不得捏造賠率、勝率、評級、D值、五項比較或球員數據。" +
     "外網消息是獨立風險因子，不得取代 Pinnacle 賠率，也不得描述成必然賽果。";
 
 
@@ -892,91 +892,116 @@
     return lines.join("\n");
   }
 
+  function questionNeedsTennisContext(question, rows) {
+    const text = String(question || "");
+    if (explicitItemMentions(text).length || fullNameMentions(text, rows).length) return true;
+    return /(TennisRatio|網球|球員|項次|場次|評級|EV|賠率|熱門方|冷門方|Pinnacle|D值|五項|主場|客場|ATP|WTA|傷病|退賽|醫療暫停|連續多場|近期狀態)/i.test(text);
+  }
+
+  function generalChatContext(options = {}, rows = []) {
+    return {
+      context_schema: "tennisratio-ai-context-v1",
+      revision: Number(options.revision || 0),
+      batch_date: options.payload?.batch_date ?? null,
+      ratio_generated_at_taiwan: options.analysis?.generated_at_taiwan ?? null,
+      total_match_count: rows.length,
+      context_mode: "general_web_chat",
+      selected_items: [],
+      sent_match_count: 0
+    };
+  }
+
+  async function directGeminiChat(body, apiKey, options = {}) {
+    const key = String(apiKey || "").trim();
+    if (!key) {
+      throw new Error("請先按左側 ⚙，貼上 Gemini API Key。此金鑰只儲存在目前瀏覽器，不會寫入 GitHub。");
+    }
+
+    const endpoint = `${DIRECT_GEMINI_API_URL}/${encodeURIComponent(CHAT_MODEL)}:generateContent`;
+    return fetchJson(endpoint, {
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs || REQUEST_TIMEOUT_MS,
+      headers: {
+        "x-goog-api-key": key
+      },
+      body
+    });
+  }
+
   async function ask(question, options = {}) {
     const rows = Array.isArray(options.rows)
       ? options.rows
       : (Array.isArray(options.analysis?.matches) ? options.analysis.matches : []);
-    const local = localAnswer(question, { ...options, rows });
-    if (local) return local;
 
-    const selected = selectedRowsForQuestion(question, rows, options.history || []);
-    if (externalRiskQuestion(question)) {
-      if (!selected.length) {
-        return {
-          answer: "這是外部消息問題。請指定項次或球員名稱；若要一次檢查全部 A／B，請按上方「分析風險」。",
-          model: "JavaScript",
-          context_mode: "local_javascript",
-          selected_items: [],
-          sent_match_count: 0,
-          total_match_count: rows.length,
-          request_bytes: 0,
-          retry_count: 0,
-          grounding_sources: [],
-          web_search_queries: []
-        };
-      }
+    const context = questionNeedsTennisContext(question, rows)
+      ? buildContext(question, { ...options, rows })
+      : generalChatContext(options, rows);
 
-      const existingEntries = Array.isArray(options.externalRisk?.entries) ? options.externalRisk.entries : [];
-      const existingMap = new Map(existingEntries.map(entry => [String(entry?.match_key || ""), entry]));
-      const riskEntries = [];
-      for (const row of selected.slice(0, 2)) {
-        const cached = existingMap.get(externalRiskMatchKey(row));
-        const entry = isRiskCacheFresh(cached, row)
-          ? { ...cached, used_cache: true }
-          : await scanExternalRisk(row, options);
-        riskEntries.push(entry);
-      }
-      return {
-        answer: riskEntries.map(formatRiskAnswer).join("\n\n"),
-        model: riskEntries.map(entry => entry.model).filter(Boolean).join("｜") || RISK_MODEL,
-        context_mode: "external_risk_search",
-        selected_items: selected.slice(0, 2).map(row => row?.項次),
-        sent_match_count: selected.slice(0, 2).length,
-        total_match_count: rows.length,
-        request_bytes: riskEntries.reduce((sum, entry) => sum + Number(entry?.request_bytes || 0), 0),
-        retry_count: 0,
-        grounding_sources: riskEntries.flatMap(entry => Array.isArray(entry?.sources) ? entry.sources : []),
-        web_search_queries: riskEntries.flatMap(entry => Array.isArray(entry?.web_search_queries) ? entry.web_search_queries : [])
-      };
-    }
-
-    const context = buildContext(question, { ...options, rows });
     const history = (Array.isArray(options.history) ? options.history : [])
       .slice(-MAX_HISTORY_MESSAGES)
       .map(item => ({
         role: item?.role === "model" ? "model" : "user",
-        text: String(item?.text || item?.content || "").slice(0, MAX_HISTORY_CHARS)
+        parts: [{
+          text: String(item?.text || item?.content || "").slice(0, MAX_HISTORY_CHARS)
+        }]
       }));
-    const systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n${String(options.customSystemPrompt || "").slice(0, 2000)}`;
-    const body = {
-      system_prompt: systemPrompt,
-      question: String(question || "").slice(0, 3000),
-      history,
-      context
+
+    const systemPrompt = `${DEFAULT_SYSTEM_PROMPT}
+${String(options.customSystemPrompt || "").slice(0, 2000)}`;
+    const contextText = context.context_mode === "general_web_chat"
+      ? ""
+      : `
+
+【TennisRatio 系統資料】
+${JSON.stringify(context)}`;
+
+    const geminiBody = {
+      systemInstruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      contents: [
+        ...history,
+        {
+          role: "user",
+          parts: [{
+            text: `${String(question || "").slice(0, 3000)}${contextText}`
+          }]
+        }
+      ],
+      tools: [{ google_search: {} }],
+      generationConfig: {
+        maxOutputTokens: 2400,
+        temperature: 0.2,
+        thinkingConfig: {
+          thinkingBudget: 512
+        }
+      }
     };
-    const bytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+
+    const bytes = new TextEncoder().encode(JSON.stringify(geminiBody)).byteLength;
     if (bytes > MAX_REQUEST_BYTES) {
       throw new Error(`Gemini 請求資料仍過大（${bytes} bytes）；請指定項次或縮小問題範圍。`);
     }
-    const response = await fetchJson(`${options.workerUrl}${GEMINI_CHAT_PATH}`, {
-      token: options.workerToken,
-      fetchImpl: options.fetchImpl,
-      body
-    });
+
+    const response = await directGeminiChat(geminiBody, options.apiKey, options);
+    const grounding = geminiGrounding(response.payload);
+
     return {
       answer: geminiText(response.payload),
-      model: response.payload?.model || CHAT_MODEL,
+      model: CHAT_MODEL,
       usage: response.payload?.usageMetadata || {},
       context_revision: Number(options.revision || 0),
       context_mode: context.context_mode,
       selected_items: context.selected_items || [],
       sent_match_count: context.sent_match_count || 0,
-      total_match_count: context.total_match_count || 0,
+      total_match_count: context.total_match_count || rows.length,
       retry_count: 0,
       request_bytes: response.requestBytes,
-      web_search_used: false,
-      web_search_queries: [],
-      grounding_sources: []
+      connection_mode: "browser_direct",
+      grounding_requested: true,
+      web_search_used: Boolean(grounding.sources.length || grounding.queries.length),
+      web_search_queries: grounding.queries,
+      grounding_sources: grounding.sources
     };
   }
 

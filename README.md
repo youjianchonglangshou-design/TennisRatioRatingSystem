@@ -631,3 +631,17 @@ TennisRatio Gemini Search v1
 風險快取：6小時
 A／B勝率門檻：65%
 ```
+
+
+## 23. 左側 Gemini 網路問答與用量顯示
+
+左側問答已改為 `gemini-2.5-flash` 瀏覽器直連模式，並提供 `google_search`。它不受 A／B、65% 或外部風險掃描條件限制，可詢問任何項次、球員、近期消息或一般問題。
+
+第一次使用時，按左側 `⚙` 貼上 Gemini API Key。金鑰只儲存在目前瀏覽器的 `localStorage`，不會寫入 GitHub；上方「分析風險」仍使用 Cloudflare Worker 的 `GEMINI_API_KEY` Secret。
+
+每次回答顯示 Gemini `usageMetadata`：輸入、輸出、思考、工具與總 Token。側邊欄頂部另外依 Gemini 配額重置週期（美國太平洋時間）累計請求數與 Token。Google Search 免費額度顯示為「本機估算」，因 Gemini 回應不提供專案精確剩餘配額；其他裝置、Worker 或程式使用同一專案時，實際剩餘量可能更少。
+
+
+### 本次側邊欄更新的部署範圍
+
+只需覆蓋 GitHub 的 `index.html`、`styles.css`、`app.js`、`README.md`、`modules/ai-services.js`。Cloudflare Worker 不需要重新部署；Worker Secret 仍只供上方「分析風險」使用。
