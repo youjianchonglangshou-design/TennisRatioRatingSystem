@@ -6,17 +6,17 @@
   const r2Client = window.TennisRatioR2Client;
   const sourcePipeline = window.TennisRatioSourcePipeline;
   const analysisEngine = window.TennisRatioAnalysisEngine;
-  const groqClient = window.TennisRatioGroq;
+  const aiClient = window.TennisRatioAI;
   if (!renderer) throw new Error("renderer.js 尚未載入。");
   if (!pinnacle) throw new Error("pinnacle.js 尚未載入。");
   if (!r2Client) throw new Error("r2-client.js 尚未載入。");
   if (!sourcePipeline) throw new Error("source-pipeline.js 尚未載入。");
   if (!analysisEngine) throw new Error("analysis-engine.js 尚未載入。");
-  if (!groqClient) throw new Error("groq-client.js 尚未載入。");
+  if (!aiClient) throw new Error("ai-services.js 尚未載入。");
 
   // ============================================================
   // 快速測試階段：前端只需要填入兩組值。
-  // Groq API Key 已移到 Cloudflare Worker Secret。
+  // Gemini API Key 已移到 Cloudflare Worker Secret。
   // ============================================================
   const ARCADIA_API_KEY =
     "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
@@ -28,7 +28,8 @@
     "tennis_upload_2026_xxxxxxxxxxxxxxxx";
 
   const DATA_BASE_URL = ".";
-  const CHAT_SETTINGS_KEY = "tennisratio.groq.settings.v1";
+  const CHAT_SETTINGS_KEY = "tennisratio.ai.settings.v1";
+  const LEGACY_GROQ_SETTINGS_KEY = "tennisratio.groq.settings.v1";
   const LEGACY_CHAT_SETTINGS_KEY = "tennisratio.gemini.settings.v1";
   const EXTERNAL_RISK_CACHE_HOURS = 6;
   const ANALYSIS_TOAST_DURATION_MS = 18000;
@@ -74,7 +75,7 @@
     chatInput: document.getElementById("chat-input"),
     chatSend: document.getElementById("chat-send"),
     chatWelcome: document.getElementById("chat-welcome"),
-    settingsDialog: document.getElementById("groq-settings-dialog"),
+    settingsDialog: document.getElementById("ai-settings-dialog"),
     downloadPinnacle: document.getElementById("download-pinnacle"),
     downloadRatio: document.getElementById("download-ratio"),
     downloadRisk: document.getElementById("download-risk"),
@@ -379,10 +380,10 @@
 
     for (const row of rows) {
       const entry = entryMap.get(
-        groqClient.externalRiskMatchKey(row)
+        aiClient.externalRiskMatchKey(row)
       );
       const status =
-        groqClient.normalizeRiskStatus(
+        aiClient.normalizeRiskStatus(
           entry?.status
         );
 
@@ -553,18 +554,18 @@
     { pending = true } = {}
   ) {
     if (
-      !groqClient.isExternalRiskEligible(row)
+      !aiClient.isExternalRiskEligible(row)
     ) {
       return null;
     }
 
     const key =
-      groqClient.externalRiskMatchKey(row);
+      aiClient.externalRiskMatchKey(row);
     const entry = riskEntryMap().get(key);
 
     if (
       entry &&
-      groqClient.isRiskCacheFresh(
+      aiClient.isRiskCacheFresh(
         entry,
         row
       )
@@ -574,7 +575,7 @@
 
     if (
       entry &&
-      groqClient.isRiskFailureStatus(
+      aiClient.isRiskFailureStatus(
         entry.status
       )
     ) {
@@ -595,7 +596,7 @@
   function riskByItem(rows) {
     const output = {};
     for (const row of Array.isArray(rows) ? rows : []) {
-      if (!groqClient.isExternalRiskEligible(row)) continue;
+      if (!aiClient.isExternalRiskEligible(row)) continue;
       output[String(row?.["項次"] ?? "")] = riskEntryForRow(row);
     }
     return output;
@@ -604,7 +605,7 @@
   function eligibleRiskRows() {
     return (Array.isArray(state.analysis?.matches)
       ? state.analysis.matches : [])
-      .filter(row => groqClient.isExternalRiskEligible(row));
+      .filter(row => aiClient.isExternalRiskEligible(row));
   }
 
   function mergeRiskEntry(entry) {
@@ -628,26 +629,26 @@
 
     for (const row of rows) {
       const entry = map.get(
-        groqClient.externalRiskMatchKey(row)
+        aiClient.externalRiskMatchKey(row)
       );
       if (entry) entries.push(entry);
     }
 
     const resolvedEntries = entries.filter(
       entry =>
-        groqClient.isRiskResolvedStatus(
+        aiClient.isRiskResolvedStatus(
           entry?.status
         )
     );
     const incompleteEntries = entries.filter(
       entry =>
-        groqClient.normalizeRiskStatus(
+        aiClient.normalizeRiskStatus(
           entry?.status
         ) === "search_incomplete"
     );
     const systemErrorEntries = entries.filter(
       entry =>
-        groqClient.normalizeRiskStatus(
+        aiClient.normalizeRiskStatus(
           entry?.status
         ) === "system_error"
     );
@@ -734,21 +735,21 @@
       risk_found_count:
         resolvedEntries.filter(
           item =>
-            groqClient.normalizeRiskStatus(
+            aiClient.normalizeRiskStatus(
               item?.status
             ) === "risk_found"
         ).length,
       clear_count:
         resolvedEntries.filter(
           item =>
-            groqClient.normalizeRiskStatus(
+            aiClient.normalizeRiskStatus(
               item?.status
             ) === "clear"
         ).length,
       manual_review_count:
         resolvedEntries.filter(
           item =>
-            groqClient.normalizeRiskStatus(
+            aiClient.normalizeRiskStatus(
               item?.status
             ) === "manual_review"
         ).length,
@@ -771,20 +772,20 @@
 
     for (const row of rows) {
       const entry = map.get(
-        groqClient.externalRiskMatchKey(row)
+        aiClient.externalRiskMatchKey(row)
       );
       if (!entry) continue;
 
       const status =
-        groqClient.normalizeRiskStatus(
+        aiClient.normalizeRiskStatus(
           entry.status
         );
 
       if (
-        groqClient.isRiskResolvedStatus(
+        aiClient.isRiskResolvedStatus(
           status
         ) &&
-        groqClient.isRiskCacheFresh(
+        aiClient.isRiskCacheFresh(
           entry,
           row
         )
@@ -902,7 +903,7 @@
 
   function riskStatusLabel(entry) {
     const status =
-      groqClient.normalizeRiskStatus(
+      aiClient.normalizeRiskStatus(
         entry?.status
       );
 
@@ -1084,7 +1085,7 @@
 
   function openRiskDialog(entry) {
     const status =
-      groqClient.normalizeRiskStatus(
+      aiClient.normalizeRiskStatus(
         entry?.status
       );
 
@@ -1420,9 +1421,9 @@
       ])
     );
     const staleRows = rows.filter(row =>
-      !groqClient.isRiskCacheFresh(
+      !aiClient.isRiskCacheFresh(
         oldMap.get(
-          groqClient.externalRiskMatchKey(row)
+          aiClient.externalRiskMatchKey(row)
         ),
         row
       )
@@ -1446,7 +1447,7 @@
       console.error(error);
       for (const row of staleRows) {
         const match =
-          groqClient.compactRiskMatch(row);
+          aiClient.compactRiskMatch(row);
         const entry = {
           ...match,
           status: "system_error",
@@ -1469,7 +1470,7 @@
           technical_error: error.message,
           sources: [],
           checked_at: new Date().toISOString(),
-          model: groqSettings.model
+          model: aiClient.RISK_MODEL
         };
         mergeRiskEntry(entry);
         refreshRiskSlot(row?.["項次"], entry);
@@ -1489,14 +1490,13 @@
 
     try {
       const result =
-        await groqClient.scanExternalRisks(
+        await aiClient.scanExternalRisks(
           rows,
           {
             existingEntries,
             workerUrl: WORKER_URL,
             workerToken,
-            model: groqSettings.model,
-            delayMs: 1400,
+            delayMs: 900,
             onPending: async row => {
               if (
                 generation !==
@@ -1560,7 +1560,7 @@
 
       const hasSystemError =
         result.entries.some(entry =>
-          groqClient.normalizeRiskStatus(
+          aiClient.normalizeRiskStatus(
             entry?.status
           ) === "system_error"
         );
@@ -2010,13 +2010,13 @@
 
     elements.chatToggle.disabled = rows.length === 0;
     elements.chatToggle.title = rows.length
-      ? "分析資料已載入，可開啟Groq問答"
-      : "分析尚未完成，Groq暫不可用";
+      ? "分析資料已載入，可開啟AI問答"
+      : "分析尚未完成，AI助理暫不可用";
     const chatContextText = document.getElementById("chat-context-text");
     if (chatContextText) {
       chatContextText.innerHTML = rows.length
         ? `分析資料已載入：<b>${rows.length} 場</b>｜單場問題只傳相關場次，不傳整份巢狀 JSON`
-        : "分析尚未完成，Groq暫不可用";
+        : "分析尚未完成，AI助理暫不可用";
     }
 
     setupSorting();
@@ -2078,8 +2078,8 @@
     elements.statusLine.classList.toggle("running", running);
     elements.chatToggle.disabled = running || elements.body.dataset.analysisReady !== "1";
     elements.chatToggle.title = running
-      ? "分析進行中，Groq暫不可用"
-      : "分析資料已載入，可開啟Groq問答";
+      ? "分析進行中，AI助理暫不可用"
+      : "分析資料已載入，可開啟AI問答";
     if (running && elements.drawer?.classList.contains("open")) setDrawer(false);
   }
 
@@ -2256,59 +2256,50 @@
   }
 
 
-  function normalizeSavedGroqModel() {
-    return "groq/compound";
+  function normalizeSavedAiModel() {
+    return aiClient.CHAT_MODEL;
   }
 
-  function groqModelLabel() {
-    return "groq/compound";
+  function aiModelLabel() {
+    return aiClient.CHAT_MODEL;
   }
 
-  function loadGroqSettings() {
+  function loadAiSettings() {
     const defaults = {
-      model: "groq/compound",
+      model: aiClient.CHAT_MODEL,
       systemPrompt: DEFAULT_TENNIS_PROMPT
     };
 
     try {
       const raw =
         localStorage.getItem(CHAT_SETTINGS_KEY) ||
-        localStorage.getItem(
-          LEGACY_CHAT_SETTINGS_KEY
-        ) ||
+        localStorage.getItem(LEGACY_GROQ_SETTINGS_KEY) ||
+        localStorage.getItem(LEGACY_CHAT_SETTINGS_KEY) ||
         "{}";
       const saved = JSON.parse(raw);
-
       return {
-        model: "groq/compound",
+        model: aiClient.CHAT_MODEL,
         systemPrompt:
-          String(
-            saved.systemPrompt ||
-            defaults.systemPrompt
-          ).trim()
+          String(saved.systemPrompt || defaults.systemPrompt).trim() ||
+          defaults.systemPrompt
       };
-    } catch (error) {
+    } catch {
       return defaults;
     }
   }
 
-  let groqSettings = loadGroqSettings();
+  let aiSettings = loadAiSettings();
 
-  function persistGroqSettings() {
+  function persistAiSettings() {
     localStorage.setItem(
       CHAT_SETTINGS_KEY,
       JSON.stringify({
-        model: "groq/compound",
-        systemPrompt: groqSettings.systemPrompt
+        model: aiClient.CHAT_MODEL,
+        systemPrompt: aiSettings.systemPrompt
       })
     );
-
-    document.getElementById(
-      "chat-model-label"
-    ).textContent =
-      groqModelLabel(
-        groqSettings.model
-      );
+    document.getElementById("chat-model-label").textContent =
+      aiModelLabel(aiSettings.model);
   }
 
   function setDrawer(open) {
@@ -2323,24 +2314,24 @@
     }
   }
 
-  function openGroqSettings() {
+  function openAiSettings() {
     document.getElementById(
-      "groq-model"
+      "ai-model"
     ).value =
-      normalizeSavedGroqModel(
-        groqSettings.model
+      normalizeSavedAiModel(
+        aiSettings.model
       );
 
     document.getElementById(
-      "groq-system-prompt"
+      "ai-system-prompt"
     ).value =
-      groqSettings.systemPrompt ||
+      aiSettings.systemPrompt ||
       DEFAULT_TENNIS_PROMPT;
 
     document.getElementById(
       "settings-status"
     ).textContent =
-      "Groq API Key：由 Cloudflare Worker Secret 管理";
+      "Gemini API Key：由 Cloudflare Worker Secret 管理";
 
     elements.settingsDialog.showModal();
   }
@@ -2366,7 +2357,7 @@
     if (Array.isArray(queries) && queries.length) {
       const meta = document.createElement("div");
       meta.className = "chat-meta";
-      meta.textContent = `Groq Web Search：${queries.join("、")}`;
+      meta.textContent = `Google Search：${queries.join("、")}`;
       message.appendChild(meta);
     }
     if (Array.isArray(sources) && sources.length) {
@@ -2395,9 +2386,13 @@
   function addContextMeta(message, result) {
     const meta = document.createElement("div");
     meta.className = "chat-meta";
-    const mode = result.context_mode === "selected_matches"
-      ? "指定場次完整資料"
-      : "全部場次精簡總覽";
+    const modeLabels = {
+      local_javascript: "JavaScript直接回答",
+      external_risk_search: "Gemini Google Search 外部消息搜尋",
+      selected_matches_compact: "指定場次精簡資料",
+      compact_overview: "全部場次精簡總覽"
+    };
+    const mode = modeLabels[result.context_mode] || "AI精簡資料";
     const retryText = result.retry_count
       ? `｜重試 ${result.retry_count} 次`
       : "";
@@ -2443,7 +2438,7 @@
       startRiskCountdownClock();
       renderAnalysis(analysis, today);
       // 開啟網頁只呈現 R2 既有結果。
-      // 不自動呼叫 Groq；由三個按鈕明確啟動 Groq Compound。
+      // 不自動搜尋外部消息；由三個按鈕明確啟動 Gemini Google Search 風險掃描。
       if (sourceBundle?.matches) {
         const health = sourceBundle.source_health || {};
         const missingSettings = [];
@@ -2637,7 +2632,7 @@
     const item = String(button.dataset.riskItem || "");
     const row = (Array.isArray(state.analysis?.matches) ? state.analysis.matches : []).find(candidate => String(candidate?.["項次"] ?? "") === item);
     if (!row) return;
-    const entry = riskEntryMap().get(groqClient.externalRiskMatchKey(row));
+    const entry = riskEntryMap().get(aiClient.externalRiskMatchKey(row));
     if (entry) openRiskDialog(entry);
   });
 
@@ -2659,20 +2654,20 @@
     elements.chatInput.value = "";
     elements.chatInput.focus();
   });
-  document.getElementById("chat-settings").addEventListener("click", openGroqSettings);
+  document.getElementById("chat-settings").addEventListener("click", openAiSettings);
   document.getElementById("settings-close").addEventListener("click", () => elements.settingsDialog.close());
   document.getElementById("settings-cancel").addEventListener("click", () => elements.settingsDialog.close());
-  document.getElementById("groq-settings-form").addEventListener("submit", event => {
+  document.getElementById("ai-settings-form").addEventListener("submit", event => {
     event.preventDefault();
-    groqSettings = {
-      model: "groq/compound",
+    aiSettings = {
+      model: aiClient.CHAT_MODEL,
       systemPrompt:
         document.getElementById(
-          "groq-system-prompt"
+          "ai-system-prompt"
         ).value.trim() ||
         DEFAULT_TENNIS_PROMPT
     };
-    persistGroqSettings();
+    persistAiSettings();
     document.getElementById("settings-status").textContent = "設定已儲存";
     setTimeout(() => elements.settingsDialog.close(), 250);
   });
@@ -2691,7 +2686,7 @@
     elements.chatSend.textContent = "分析中…";
     const pending = createChatMessage(
       "model pending",
-      "Groq Compound 正在分析 TennisRatio 資料；需要即時資訊時會使用內建 Web Search…"
+      "正在判斷問題類型：系統內資料由 JavaScript 直接回答；外部消息與複雜解釋使用 Gemini 2.5 Flash…"
     );
 
     try {
@@ -2703,7 +2698,7 @@
       const analysisRows = Array.isArray(state.analysis?.matches)
         ? state.analysis.matches
         : [];
-      const result = await groqClient.ask(question, {
+      const result = await aiClient.ask(question, {
         payload: state.today,
         analysis: state.analysis,
         rows: analysisRows,
@@ -2711,9 +2706,8 @@
         history: requestHistory,
         workerUrl: WORKER_URL,
         workerToken,
-        model: groqSettings.model,
-        customSystemPrompt: groqSettings.systemPrompt,
-        webGrounding: true
+        externalRisk: state.externalRisk,
+        customSystemPrompt: aiSettings.systemPrompt
       });
 
       pending.message.classList.remove("pending");
@@ -2722,7 +2716,7 @@
         document.getElementById(
           "chat-model-label"
         ).textContent =
-          result.model || "groq/compound";
+          result.model || aiClient.CHAT_MODEL;
       }
 
       const answer = String(result.answer || "");
@@ -2736,7 +2730,7 @@
       state.chatHistory.push({ role: "model", text: answer });
     } catch (error) {
       pending.message.remove();
-      appendError(`Groq錯誤：${error?.message || String(error)}`);
+      appendError(`AI助理錯誤：${error?.message || String(error)}`);
     } finally {
       state.generating = false;
       elements.chatSend.disabled = false;
@@ -2752,7 +2746,7 @@
     }
   });
 
-  persistGroqSettings();
+  persistAiSettings();
   window.addEventListener("resize", hideCard);
   window.addEventListener("keydown", event => {
     if (event.key === "Escape") hideCard();
