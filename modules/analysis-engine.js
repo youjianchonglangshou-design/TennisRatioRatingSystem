@@ -17,7 +17,7 @@
   const MODEL_ORIENTATION = "pinnacle_lower_odds_hot_first_formula_b";
   const BO3_MODEL_NAME = "BO3 Mechanical v1.0";
   const BO3_MODEL_VERSION = "1.0";
-  const APP_VERSION = "4.4.9-strict-five-support-rating";
+  const APP_VERSION = "4.4.10-rating65-ab-gate";
 
   const REQUIRED_METRICS = [
     "win_percentage",
@@ -956,10 +956,15 @@
   function ratingDecision(options) {
     const thresholds = options.config?.rating || {};
     const probabilityPct = options.probability * 100;
+    const abProbabilityMin = Number(thresholds.AB_probability_min_pct ?? 65);
+    const probabilityPass = probabilityPct + 1e-9 >= abProbabilityMin;
     const evGradeValue = evGrade(options.evPct, thresholds);
     const supportCeilingValue = supportCeiling(options.hotSupportCount, thresholds);
-    const finalGrade = GRADE_ORDER[evGradeValue] <= GRADE_ORDER[supportCeilingValue]
+    const evSupportGrade = GRADE_ORDER[evGradeValue] <= GRADE_ORDER[supportCeilingValue]
       ? evGradeValue : supportCeilingValue;
+    const probabilityCeilingValue = probabilityPass ? "A" : "C";
+    const finalGrade = GRADE_ORDER[evSupportGrade] <= GRADE_ORDER[probabilityCeilingValue]
+      ? evSupportGrade : probabilityCeilingValue;
     const reasons = [];
     if (evGradeValue === finalGrade && finalGrade !== "A") {
       const nextThreshold = evGradeValue === "淘汰"
@@ -973,19 +978,38 @@
     if (supportCeilingValue === finalGrade && finalGrade !== "A") {
       reasons.push(`五項支持${options.hotSupportCount}/${options.componentCount}，評級最高只能${supportCeilingValue}`);
     }
+    if (!probabilityPass && ["A", "B"].includes(evSupportGrade)) {
+      reasons.push(`評級勝率${probabilityPct.toFixed(2)}%未達A／B最低${abProbabilityMin.toFixed(0)}%，評級最高只能C`);
+    }
     return {
       最終評級: finalGrade,
+      原始EV五項評級: evSupportGrade,
       評級勝率參考: probabilityPct,
-      評級勝率是否參與門檻: false,
+      評級勝率是否參與門檻: true,
+      A_B評級勝率門檻: abProbabilityMin,
+      評級勝率門檻通過: probabilityPass,
+      評級勝率上限: probabilityCeilingValue,
       評級EV等級: evGradeValue,
       五項支持上限: supportCeilingValue,
       熱門方五項支持: options.hotSupportCount,
       五項比較數: options.componentCount,
       降級原因: reasons,
       門檻: {
-        A: { 評級EV至少: Number(thresholds.A_ev_min_pct ?? 7), 五項支持等於: Number(thresholds.A_support_min ?? 5) },
-        B: { 評級EV至少: Number(thresholds.B_ev_min_pct ?? 4), 五項支持至少: Number(thresholds.B_support_min ?? 4) },
-        C: { 評級EV大於: Number(thresholds.C_ev_min_pct ?? 0), 五項支持至少: Number(thresholds.C_support_min ?? 3) }
+        A: {
+          評級勝率至少: abProbabilityMin,
+          評級EV至少: Number(thresholds.A_ev_min_pct ?? 7),
+          五項支持等於: Number(thresholds.A_support_min ?? 5)
+        },
+        B: {
+          評級勝率至少: abProbabilityMin,
+          評級EV至少: Number(thresholds.B_ev_min_pct ?? 4),
+          五項支持至少: Number(thresholds.B_support_min ?? 4)
+        },
+        C: {
+          評級EV大於: Number(thresholds.C_ev_min_pct ?? 0),
+          五項支持至少: Number(thresholds.C_support_min ?? 3),
+          評級勝率限制: "無65%限制"
+        }
       }
     };
   }
@@ -1267,7 +1291,7 @@
           `作用比例=${percentage0(formula.rank_effect_factor)}（${formula.hot_better_component_count}/${formula.component_count}項）、` +
           `實際排名修正=${plusFixed(formula.rank_adjustment, 4)}。`,
         `公式B EV＝勝率×熱門方賠率−1＝${plusFixed(ratingEv * 100, 2)}%。`,
-        `兩道門檻：EV${decision.評級EV等級}、五項上限${decision.五項支持上限}，最終${decision.最終評級}；評級勝率僅供參考。`
+        `三道門檻：EV${decision.評級EV等級}、五項上限${decision.五項支持上限}、勝率上限${decision.評級勝率上限}（A／B需≥${Number(decision.A_B評級勝率門檻).toFixed(0)}%），最終${decision.最終評級}。`
       ],
       模型: {
         名稱: FORMULA_NAME,
@@ -1362,6 +1386,7 @@
     const now = options.now instanceof Date ? options.now :
       options.now ? new Date(options.now) : new Date();
     const matches = [];
+    const abProbabilityMin = Number(config?.rating?.AB_probability_min_pct ?? 65);
     for (let index = 0; index < rows.length; index += 1) {
       const result = analyzeSourceMatch(rows[index], config || {}, now);
       matches.push(result);
@@ -1411,7 +1436,7 @@
         },
         評級EV公式: "公式B勝率 × 熱門方賠率 − 1",
         BO3機械預測: "評級勝率反推單盤勝率；混合保發率與破發率決定單盤比分分布；精確枚舉BO3盤數機率與總局數，無隨機抽樣",
-        rating_thresholds: "兩道門檻取最低：A需EV≥7%且五項5/5；B需EV≥4%且五項≥4/5；C需EV>0%且五項≥3/5；五項≤2/5直接淘汰；評級勝率僅供參考與BO3預測，不限制A/B/C"
+        rating_thresholds: `三道門檻取最低：A需評級勝率≥${abProbabilityMin}%、EV≥7%且五項5/5；B需評級勝率≥${abProbabilityMin}%、EV≥4%且五項≥4/5；評級勝率低於${abProbabilityMin}%時A／B最高降為C；C仍需EV>0%且五項≥3/5；五項≤2/5直接淘汰`
       },
       "365Scores_errors": deepClone(sourceBundle?.source_errors?.["365Scores"] || {}),
       TennisRatio_schedule_errors: deepClone(sourceBundle?.source_errors?.TennisRatio_schedule || {}),
