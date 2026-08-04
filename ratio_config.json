@@ -46,13 +46,14 @@
     }
   },
   "rating": {
+    "AB_probability_min_pct": 65.0,
     "A_ev_min_pct": 7.0,
     "B_ev_min_pct": 4.0,
     "C_ev_min_pct": 0.0,
     "A_support_min": 5,
     "B_support_min": 4,
-    "basis": "15項看廣度；五項決定支持方向；D值看差距強度；EV決定價格。A需EV≥7%且5/5，B需EV≥4%且≥4/5，C需EV>0%且≥3/5，五項≤2/5淘汰；評級勝率僅供分析與BO3預測。",
-    "C_support_min": 3
+    "C_support_min": 3,
+    "basis": "15項看廣度；五項決定支持方向；D值看差距強度；EV決定價格。A需評級勝率≥65%、EV≥7%且5/5；B需評級勝率≥65%、EV≥4%且≥4/5；評級勝率低於65%時A／B最高降為C；C需EV>0%且≥3/5；五項≤2/5淘汰。"
   },
   "network": {
     "timeout_seconds": 20,
