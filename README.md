@@ -632,16 +632,35 @@ TennisRatio Gemini Search v1
 A／B勝率門檻：65%
 ```
 
+## 23. Gemini 共用 Secret、網路問答與全域用量面板
 
-## 23. 左側 Gemini 網路問答與用量顯示
+左側問答與上方「分析風險」現在都經由 Cloudflare Worker 呼叫 `gemini-2.5-flash`，並共用 Worker 內的 `GEMINI_API_KEY` Secret。GitHub Pages 不再要求使用者在瀏覽器重新輸入 Gemini API Key。
 
-左側問答已改為 `gemini-2.5-flash` 瀏覽器直連模式，並提供 `google_search`。它不受 A／B、65% 或外部風險掃描條件限制，可詢問任何項次、球員、近期消息或一般問題。
+左側問答可使用 `google_search`，不受 A／B、65% 或外部風險掃描條件限制；系統內的評級數量、EV 排名與單一項次固定資料仍優先由 JavaScript 直接回答，因此不消耗 Gemini。
 
-第一次使用時，按左側 `⚙` 貼上 Gemini API Key。金鑰只儲存在目前瀏覽器的 `localStorage`，不會寫入 GitHub；上方「分析風險」仍使用 Cloudflare Worker 的 `GEMINI_API_KEY` Secret。
+頁首新增常駐 Gemini 用量面板，無須展開 AI 側欄即可看到：
 
-每次回答顯示 Gemini `usageMetadata`：輸入、輸出、思考、工具與總 Token。側邊欄頂部另外依 Gemini 配額重置週期（美國太平洋時間）累計請求數與 Token。Google Search 免費額度顯示為「本機估算」，因 Gemini 回應不提供專案精確剩餘配額；其他裝置、Worker 或程式使用同一專案時，實際剩餘量可能更少。
+- 本次問答或風險掃描 Token
+- 本配額日 API 請求數
+- 問答／風險請求分項
+- 本配額日累計 Token
+- Google Search RPD 本頁估算剩餘量
+- 下一次美國太平洋時間午夜重置所對應的台灣時間與即時倒數
 
+Token 來自 Gemini 回應的 `usageMetadata`。Google 並未在一般 `generateContent` 回應中提供整個專案的精確剩餘 RPD，因此頁面顯示的是本瀏覽器對本頁成功呼叫的本機估算；其他裝置、Google AI Studio 或其他程式使用同一專案的量不會自動計入。
 
-### 本次側邊欄更新的部署範圍
+### 部署
 
-只需覆蓋 GitHub 的 `index.html`、`styles.css`、`app.js`、`README.md`、`modules/ai-services.js`。Cloudflare Worker 不需要重新部署；Worker Secret 仍只供上方「分析風險」使用。
+GitHub 覆蓋：
+
+- `index.html`
+- `styles.css`
+- `app.js`
+- `README.md`
+- `modules/ai-services.js`
+
+Cloudflare Worker 必須同步覆蓋 `Cloudflare/cloudflare-worker.js` 並重新 Deploy，因為左側問答現在也透過 Worker 且啟用 Google Search。Worker 需保留：
+
+- `GEMINI_API_KEY` Secret
+- `UPLOAD_TOKEN` Secret
+- `JSON_BUCKET` R2 binding

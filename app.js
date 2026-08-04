@@ -15,9 +15,9 @@
   if (!aiClient) throw new Error("ai-services.js 尚未載入。");
 
   // ============================================================
-  // 快速測試階段：前端只需要填入兩組值。
-  // 左側 Gemini 問答改為瀏覽器直連；API Key 只存在 localStorage。
-  // 上方「分析風險」仍使用 Cloudflare Worker Secret。
+  // Gemini 統一由 Cloudflare Worker 代理。
+  // 左側問答與上方「分析風險」共用 GEMINI_API_KEY Secret。
+  // 前端不再要求或保存 Gemini API Key。
   // ============================================================
   const ARCADIA_API_KEY =
     "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
@@ -78,7 +78,7 @@
     chatInput: document.getElementById("chat-input"),
     chatSend: document.getElementById("chat-send"),
     chatWelcome: document.getElementById("chat-welcome"),
-    chatUsage: document.getElementById("chat-usage"),
+    geminiUsage: document.getElementById("gemini-global-usage"),
     settingsDialog: document.getElementById("ai-settings-dialog"),
     downloadPinnacle: document.getElementById("download-pinnacle"),
     downloadRatio: document.getElementById("download-ratio"),
@@ -1487,6 +1487,12 @@
       return;
     }
 
+    const riskUsageOperationId = beginGeminiUsageOperation(
+      "risk",
+      `risk-${Date.now()}-${generation}`,
+      `準備掃描 ${staleRows.length} 場`
+    );
+
     state.riskScanning = true;
     updateRiskStatus();
 
@@ -1540,8 +1546,13 @@
               ) {
                 recordGeminiUsage(entry.usage, {
                   grounded: true,
-                  kind: "risk"
+                  kind: "risk",
+                  operationId: riskUsageOperationId
                 });
+                updateGeminiUsageOperationNote(
+                  riskUsageOperationId,
+                  `${progress.completed}/${progress.total} 場`
+                );
               }
 
               try {
@@ -2283,7 +2294,6 @@
   function loadAiSettings() {
     const defaults = {
       model: aiClient.CHAT_MODEL,
-      apiKey: "",
       systemPrompt: DEFAULT_TENNIS_PROMPT
     };
 
@@ -2296,7 +2306,6 @@
       const saved = JSON.parse(raw);
       return {
         model: aiClient.CHAT_MODEL,
-        apiKey: String(saved.apiKey || saved.key || "").trim(),
         systemPrompt:
           String(saved.systemPrompt || defaults.systemPrompt).trim() ||
           defaults.systemPrompt
@@ -2313,7 +2322,6 @@
       CHAT_SETTINGS_KEY,
       JSON.stringify({
         model: aiClient.CHAT_MODEL,
-        apiKey: aiSettings.apiKey,
         systemPrompt: aiSettings.systemPrompt
       })
     );
@@ -2333,28 +2341,14 @@
   }
 
   function openAiSettings() {
-    document.getElementById(
-      "ai-model"
-    ).value =
-      normalizeSavedAiModel(
-        aiSettings.model
-      );
+    document.getElementById("ai-model").value =
+      normalizeSavedAiModel(aiSettings.model);
 
-    document.getElementById(
-      "ai-api-key"
-    ).value = aiSettings.apiKey || "";
+    document.getElementById("ai-system-prompt").value =
+      aiSettings.systemPrompt || DEFAULT_TENNIS_PROMPT;
 
-    document.getElementById(
-      "ai-system-prompt"
-    ).value =
-      aiSettings.systemPrompt ||
-      DEFAULT_TENNIS_PROMPT;
-
-    document.getElementById(
-      "settings-status"
-    ).textContent = aiSettings.apiKey
-      ? "API Key 已儲存在這台電腦的瀏覽器"
-      : "請貼上 Gemini API Key";
+    document.getElementById("settings-status").textContent =
+      "已共用 Cloudflare GEMINI_API_KEY Secret";
 
     elements.settingsDialog.showModal();
   }
@@ -2366,6 +2360,58 @@
       month: "2-digit",
       day: "2-digit"
     }).format(value);
+  }
+
+  function timeZoneOffsetMs(date, timeZone) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+    const asUtc = Date.UTC(
+      Number(map.year), Number(map.month) - 1, Number(map.day),
+      Number(map.hour), Number(map.minute), Number(map.second)
+    );
+    return asUtc - date.getTime();
+  }
+
+  function nextPacificMidnight(now = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(now);
+    const map = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+    const localMidnightAsUtc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day) + 1, 0, 0, 0);
+    let targetMs = localMidnightAsUtc;
+    for (let index = 0; index < 3; index += 1) {
+      targetMs = localMidnightAsUtc - timeZoneOffsetMs(new Date(targetMs), "America/Los_Angeles");
+    }
+    return new Date(targetMs);
+  }
+
+  function countdownText(milliseconds) {
+    const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return [hours, minutes, seconds].map(value => String(value).padStart(2, "0")).join(":");
+  }
+
+  function taiwanResetClock(date) {
+    return new Intl.DateTimeFormat("zh-TW", {
+      timeZone: "Asia/Taipei",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).format(date);
   }
 
   function emptyGeminiUsage() {
@@ -2380,7 +2426,8 @@
       total_tokens: 0,
       chat_requests: 0,
       risk_requests: 0,
-      last: null
+      last: null,
+      last_operation: null
     };
   }
 
@@ -2401,48 +2448,109 @@
     return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
   }
 
-  function renderGeminiUsage(lastUsage = null) {
-    if (!elements.chatUsage) return;
+  function beginGeminiUsageOperation(kind, operationId, note = "") {
+    const id = String(operationId || `${kind}-${Date.now()}`);
+    geminiUsage.last_operation = {
+      id,
+      kind: kind === "risk" ? "risk" : "chat",
+      requests: 0,
+      prompt_tokens: 0,
+      output_tokens: 0,
+      thought_tokens: 0,
+      tool_tokens: 0,
+      total_tokens: 0,
+      note: String(note || ""),
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    localStorage.setItem(GEMINI_USAGE_KEY, JSON.stringify(geminiUsage));
+    renderGeminiUsage();
+    return id;
+  }
+
+  function updateGeminiUsageOperationNote(operationId, note) {
+    if (geminiUsage.last_operation?.id !== operationId) return;
+    geminiUsage.last_operation.note = String(note || "");
+    geminiUsage.last_operation.updated_at = new Date().toISOString();
+    localStorage.setItem(GEMINI_USAGE_KEY, JSON.stringify(geminiUsage));
+    renderGeminiUsage();
+  }
+
+  function renderGeminiUsage() {
+    if (!elements.geminiUsage) return;
     if (geminiUsage.date !== geminiQuotaDateKey()) {
       geminiUsage = emptyGeminiUsage();
       localStorage.setItem(GEMINI_USAGE_KEY, JSON.stringify(geminiUsage));
     }
-    const remaining = Math.max(
-      0,
-      GEMINI_GROUNDED_DAILY_LIMIT - Number(geminiUsage.grounded_requests || 0)
-    );
-    const lastTotal = usageNumber(lastUsage, "totalTokenCount");
-    const lastText = lastTotal > 0
-      ? `本次 <strong>${lastTotal.toLocaleString()}</strong> tokens｜`
-      : "";
-    elements.chatUsage.innerHTML =
-      `${lastText}本配額日 <strong>${Number(geminiUsage.requests || 0)}</strong> 次｜` +
-      `<strong>${Number(geminiUsage.total_tokens || 0).toLocaleString()}</strong> tokens｜` +
-      `<span class="usage-search">免費搜尋額度本機估算剩餘 ${remaining}/${GEMINI_GROUNDED_DAILY_LIMIT}</span>`;
-    elements.chatUsage.title =
-      "Token 數來自 Gemini usageMetadata。搜尋剩餘量只依這台瀏覽器今天記錄估算；配額日依美國太平洋時間重置；同一專案在其他裝置或程式的用量不會出現在這裡。";
+
+    const now = new Date();
+    const resetAt = nextPacificMidnight(now);
+    const remaining = Math.max(0, GEMINI_GROUNDED_DAILY_LIMIT - Number(geminiUsage.grounded_requests || 0));
+    const operation = geminiUsage.last_operation && typeof geminiUsage.last_operation === "object"
+      ? geminiUsage.last_operation
+      : null;
+    const operationKind = operation?.kind === "risk" ? "風險" : "問答";
+    const operationRequests = Number(operation?.requests || 0);
+    const operationTokens = Number(operation?.total_tokens || 0);
+    const operationNote = String(operation?.note || "").trim();
+    const operationText = operation
+      ? `本次${operationKind} <strong>${operationRequests}</strong> 次｜<strong>${operationTokens.toLocaleString()}</strong> tokens${operationNote ? `｜<em>${operationNote}</em>` : ""}`
+      : "本次尚無 API 用量";
+
+    elements.geminiUsage.innerHTML =
+      `<div class="gemini-usage-title"><span>✦ Gemini 2.5 Flash</span><b>問答＋風險共用</b></div>` +
+      `<div class="gemini-usage-main">${operationText}｜今日 <strong>${Number(geminiUsage.requests || 0)}</strong> 次 ` +
+      `<em>問答${Number(geminiUsage.chat_requests || 0)}／風險${Number(geminiUsage.risk_requests || 0)}</em>｜累計 ` +
+      `<strong>${Number(geminiUsage.total_tokens || 0).toLocaleString()}</strong> tokens</div>` +
+      `<div class="gemini-usage-sub">Google Search RPD 本頁估算剩餘 <strong>${remaining}/${GEMINI_GROUNDED_DAILY_LIMIT}</strong>` +
+      `｜台灣 ${taiwanResetClock(resetAt)} 重置｜倒數 <strong class="gemini-reset-countdown">${countdownText(resetAt - now)}</strong></div>`;
+
+    elements.geminiUsage.title =
+      "Token 來自 Gemini usageMetadata。RPD 剩餘量是本瀏覽器對本頁成功呼叫的本機估算，包含左側問答與分析風險；其他裝置、AI Studio 或其他程式的同專案用量不會自動計入。";
   }
 
   function recordGeminiUsage(usage, options = {}) {
     if (!usage || typeof usage !== "object") return;
     if (geminiUsage.date !== geminiQuotaDateKey()) geminiUsage = emptyGeminiUsage();
 
+    const kind = options.kind === "risk" ? "risk" : "chat";
+    const operationId = String(options.operationId || `${kind}-${Date.now()}`);
+    if (geminiUsage.last_operation?.id !== operationId) {
+      beginGeminiUsageOperation(kind, operationId);
+    }
+    const operation = geminiUsage.last_operation;
+
+    const promptTokens = usageNumber(usage, "promptTokenCount");
+    const outputTokens = usageNumber(usage, "candidatesTokenCount");
+    const thoughtTokens = usageNumber(usage, "thoughtsTokenCount");
+    const toolTokens = usageNumber(usage, "toolUsePromptTokenCount");
+    const totalTokens = usageNumber(usage, "totalTokenCount");
+
     geminiUsage.requests += 1;
     if (options.grounded) geminiUsage.grounded_requests += 1;
-    if (options.kind === "risk") geminiUsage.risk_requests += 1;
+    if (kind === "risk") geminiUsage.risk_requests += 1;
     else geminiUsage.chat_requests += 1;
-    geminiUsage.prompt_tokens += usageNumber(usage, "promptTokenCount");
-    geminiUsage.output_tokens += usageNumber(usage, "candidatesTokenCount");
-    geminiUsage.thought_tokens += usageNumber(usage, "thoughtsTokenCount");
-    geminiUsage.tool_tokens += usageNumber(usage, "toolUsePromptTokenCount");
-    geminiUsage.total_tokens += usageNumber(usage, "totalTokenCount");
+    geminiUsage.prompt_tokens += promptTokens;
+    geminiUsage.output_tokens += outputTokens;
+    geminiUsage.thought_tokens += thoughtTokens;
+    geminiUsage.tool_tokens += toolTokens;
+    geminiUsage.total_tokens += totalTokens;
     geminiUsage.last = {
       at: new Date().toISOString(),
-      kind: options.kind || "chat",
+      kind,
       usage
     };
+
+    operation.requests += 1;
+    operation.prompt_tokens += promptTokens;
+    operation.output_tokens += outputTokens;
+    operation.thought_tokens += thoughtTokens;
+    operation.tool_tokens += toolTokens;
+    operation.total_tokens += totalTokens;
+    operation.updated_at = new Date().toISOString();
+
     localStorage.setItem(GEMINI_USAGE_KEY, JSON.stringify(geminiUsage));
-    renderGeminiUsage(usage);
+    renderGeminiUsage();
   }
 
   function createChatMessage(role, text = "") {
@@ -2507,9 +2615,11 @@
     const bytesText = Number.isFinite(Number(result.request_bytes))
       ? `｜請求 ${(Number(result.request_bytes) / 1024).toFixed(1)} KB`
       : "";
-    const connectionText = result.connection_mode === "browser_direct"
-      ? "｜瀏覽器直連"
-      : "";
+    const connectionText = result.connection_mode === "cloudflare_worker_secret"
+      ? "｜Worker 共用 Secret"
+      : result.connection_mode === "browser_direct"
+        ? "｜瀏覽器直連"
+        : "";
     meta.textContent =
       `本次上下文：${mode}｜傳送 ${result.sent_match_count || 0}/${result.total_match_count || 0} 場` +
       `${bytesText}${connectionText}${retryText}`;
@@ -2782,26 +2892,16 @@
   document.getElementById("chat-settings").addEventListener("click", openAiSettings);
   document.getElementById("settings-close").addEventListener("click", () => elements.settingsDialog.close());
   document.getElementById("settings-cancel").addEventListener("click", () => elements.settingsDialog.close());
-  document.getElementById("ai-key-toggle").addEventListener("click", () => {
-    const input = document.getElementById("ai-api-key");
-    input.type = input.type === "password" ? "text" : "password";
-  });
   document.getElementById("ai-settings-form").addEventListener("submit", event => {
     event.preventDefault();
     aiSettings = {
       model: aiClient.CHAT_MODEL,
-      apiKey:
-        document.getElementById(
-          "ai-api-key"
-        ).value.trim(),
       systemPrompt:
-        document.getElementById(
-          "ai-system-prompt"
-        ).value.trim() ||
+        document.getElementById("ai-system-prompt").value.trim() ||
         DEFAULT_TENNIS_PROMPT
     };
     persistAiSettings();
-    document.getElementById("settings-status").textContent = "設定已儲存";
+    document.getElementById("settings-status").textContent = "設定已儲存｜共用 Worker Secret";
     setTimeout(() => elements.settingsDialog.close(), 250);
   });
 
@@ -2817,16 +2917,17 @@
     state.generating = true;
     elements.chatSend.disabled = true;
     elements.chatSend.textContent = "分析中…";
+    const chatUsageOperationId = beginGeminiUsageOperation(
+      "chat",
+      `chat-${Date.now()}`,
+      "處理中"
+    );
     const pending = createChatMessage(
       "model pending",
-      "Gemini 2.5 Flash 正在回答；需要近期資料時會使用 Google Search…"
+      "Gemini 2.5 Flash 正在回答；透過 Cloudflare Worker 共用 Secret，需要近期資料時會使用 Google Search…"
     );
 
     try {
-      if (!String(aiSettings.apiKey || "").trim()) {
-        openAiSettings();
-        throw new Error("請先在 AI 設定貼上 Gemini API Key。左側問答會從這台電腦直接連線 Gemini。");
-      }
 
       const workerToken = configurationValue(
         WORKER_UPLOAD_TOKEN,
@@ -2845,7 +2946,6 @@
         workerUrl: WORKER_URL,
         workerToken,
         externalRisk: state.externalRisk,
-        apiKey: aiSettings.apiKey,
         customSystemPrompt: aiSettings.systemPrompt
       });
 
@@ -2866,12 +2966,22 @@
         result.grounding_sources || [],
         result.web_search_queries || []
       );
-      recordGeminiUsage(result.usage, {
-        grounded: Boolean(result.grounding_requested),
-        kind: "chat"
-      });
+      if (usageNumber(result.usage, "totalTokenCount") > 0) {
+        recordGeminiUsage(result.usage, {
+          grounded: Boolean(result.grounding_requested),
+          kind: "chat",
+          operationId: chatUsageOperationId
+        });
+        updateGeminiUsageOperationNote(chatUsageOperationId, "完成");
+      } else {
+        updateGeminiUsageOperationNote(
+          chatUsageOperationId,
+          result.model === "JavaScript" ? "JavaScript 直接回答｜0 API" : "未回傳 Token 用量"
+        );
+      }
       state.chatHistory.push({ role: "model", text: answer });
     } catch (error) {
+      updateGeminiUsageOperationNote(chatUsageOperationId, "請求失敗｜未計入成功用量");
       pending.message.remove();
       appendError(`AI助理錯誤：${error?.message || String(error)}`);
     } finally {
@@ -2891,6 +3001,7 @@
 
   persistAiSettings();
   renderGeminiUsage();
+  window.setInterval(() => renderGeminiUsage(), 1000);
   window.addEventListener("resize", hideCard);
   window.addEventListener("keydown", event => {
     if (event.key === "Escape") hideCard();

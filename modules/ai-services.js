@@ -4,7 +4,6 @@
   const CHAT_MODEL = "gemini-2.5-flash";
   const RISK_MODEL = "gemini-2.5-flash";
   const GEMINI_CHAT_PATH = "/gemini/chat";
-  const DIRECT_GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
   const GEMINI_RISK_PATH = "/gemini/player-risk";
   const MAX_HISTORY_MESSAGES = 4;
   const MAX_HISTORY_CHARS = 1200;
@@ -911,27 +910,13 @@
     };
   }
 
-  async function directGeminiChat(body, apiKey, options = {}) {
-    const key = String(apiKey || "").trim();
-    if (!key) {
-      throw new Error("請先按左側 ⚙，貼上 Gemini API Key。此金鑰只儲存在目前瀏覽器，不會寫入 GitHub。");
-    }
-
-    const endpoint = `${DIRECT_GEMINI_API_URL}/${encodeURIComponent(CHAT_MODEL)}:generateContent`;
-    return fetchJson(endpoint, {
-      fetchImpl: options.fetchImpl,
-      timeoutMs: options.timeoutMs || REQUEST_TIMEOUT_MS,
-      headers: {
-        "x-goog-api-key": key
-      },
-      body
-    });
-  }
-
   async function ask(question, options = {}) {
     const rows = Array.isArray(options.rows)
       ? options.rows
       : (Array.isArray(options.analysis?.matches) ? options.analysis.matches : []);
+
+    const local = localAnswer(question, { ...options, rows });
+    if (local) return local;
 
     const context = questionNeedsTennisContext(question, rows)
       ? buildContext(question, { ...options, rows })
@@ -941,54 +926,31 @@
       .slice(-MAX_HISTORY_MESSAGES)
       .map(item => ({
         role: item?.role === "model" ? "model" : "user",
-        parts: [{
-          text: String(item?.text || item?.content || "").slice(0, MAX_HISTORY_CHARS)
-        }]
+        text: String(item?.text || item?.content || "").slice(0, MAX_HISTORY_CHARS)
       }));
 
-    const systemPrompt = `${DEFAULT_SYSTEM_PROMPT}
-${String(options.customSystemPrompt || "").slice(0, 2000)}`;
-    const contextText = context.context_mode === "general_web_chat"
-      ? ""
-      : `
-
-【TennisRatio 系統資料】
-${JSON.stringify(context)}`;
-
-    const geminiBody = {
-      systemInstruction: {
-        parts: [{ text: systemPrompt }]
-      },
-      contents: [
-        ...history,
-        {
-          role: "user",
-          parts: [{
-            text: `${String(question || "").slice(0, 3000)}${contextText}`
-          }]
-        }
-      ],
-      tools: [{ google_search: {} }],
-      generationConfig: {
-        maxOutputTokens: 2400,
-        temperature: 0.2,
-        thinkingConfig: {
-          thinkingBudget: 512
-        }
-      }
+    const systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n${String(options.customSystemPrompt || "").slice(0, 2000)}`;
+    const body = {
+      system_prompt: systemPrompt,
+      question: String(question || "").slice(0, 3000),
+      history,
+      context
     };
-
-    const bytes = new TextEncoder().encode(JSON.stringify(geminiBody)).byteLength;
+    const bytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
     if (bytes > MAX_REQUEST_BYTES) {
       throw new Error(`Gemini 請求資料仍過大（${bytes} bytes）；請指定項次或縮小問題範圍。`);
     }
 
-    const response = await directGeminiChat(geminiBody, options.apiKey, options);
+    const response = await fetchJson(`${options.workerUrl}${GEMINI_CHAT_PATH}`, {
+      token: options.workerToken,
+      fetchImpl: options.fetchImpl,
+      body
+    });
     const grounding = geminiGrounding(response.payload);
 
     return {
       answer: geminiText(response.payload),
-      model: CHAT_MODEL,
+      model: response.payload?.model || CHAT_MODEL,
       usage: response.payload?.usageMetadata || {},
       context_revision: Number(options.revision || 0),
       context_mode: context.context_mode,
@@ -997,7 +959,7 @@ ${JSON.stringify(context)}`;
       total_match_count: context.total_match_count || rows.length,
       retry_count: 0,
       request_bytes: response.requestBytes,
-      connection_mode: "browser_direct",
+      connection_mode: "cloudflare_worker_secret",
       grounding_requested: true,
       web_search_used: Boolean(grounding.sources.length || grounding.queries.length),
       web_search_queries: grounding.queries,
