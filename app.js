@@ -79,6 +79,10 @@
     chatSend: document.getElementById("chat-send"),
     chatWelcome: document.getElementById("chat-welcome"),
     geminiUsage: document.getElementById("gemini-global-usage"),
+    geminiRpdSummary: document.getElementById("gemini-rpd-summary"),
+    geminiUsageHelp: document.getElementById("gemini-usage-help"),
+    geminiUsagePopover: document.getElementById("gemini-usage-popover"),
+    geminiUsageDetail: document.getElementById("gemini-usage-detail"),
     settingsDialog: document.getElementById("ai-settings-dialog"),
     downloadPinnacle: document.getElementById("download-pinnacle"),
     downloadRatio: document.getElementById("download-ratio"),
@@ -2398,11 +2402,10 @@
   }
 
   function countdownText(milliseconds) {
-    const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return [hours, minutes, seconds].map(value => String(value).padStart(2, "0")).join(":");
+    const totalMinutes = Math.max(0, Math.floor(milliseconds / 60000));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}小時${minutes}分`;
   }
 
   function taiwanResetClock(date) {
@@ -2494,19 +2497,24 @@
     const operationTokens = Number(operation?.total_tokens || 0);
     const operationNote = String(operation?.note || "").trim();
     const operationText = operation
-      ? `本次${operationKind} <strong>${operationRequests}</strong> 次｜<strong>${operationTokens.toLocaleString()}</strong> tokens${operationNote ? `｜<em>${operationNote}</em>` : ""}`
+      ? `本次${operationKind} ${operationRequests} 次｜${operationTokens.toLocaleString()} tokens${operationNote ? `｜${operationNote}` : ""}`
       : "本次尚無 API 用量";
 
-    elements.geminiUsage.innerHTML =
-      `<div class="gemini-usage-title"><span>✦ Gemini 2.5 Flash</span><b>問答＋風險共用</b></div>` +
-      `<div class="gemini-usage-main">${operationText}｜今日 <strong>${Number(geminiUsage.requests || 0)}</strong> 次 ` +
-      `<em>問答${Number(geminiUsage.chat_requests || 0)}／風險${Number(geminiUsage.risk_requests || 0)}</em>｜累計 ` +
-      `<strong>${Number(geminiUsage.total_tokens || 0).toLocaleString()}</strong> tokens</div>` +
-      `<div class="gemini-usage-sub">Google Search RPD 本頁估算剩餘 <strong>${remaining}/${GEMINI_GROUNDED_DAILY_LIMIT}</strong>` +
-      `｜台灣 ${taiwanResetClock(resetAt)} 重置｜倒數 <strong class="gemini-reset-countdown">${countdownText(resetAt - now)}</strong></div>`;
+    if (elements.geminiRpdSummary) {
+      elements.geminiRpdSummary.innerHTML =
+        `Google Search RPD 本頁估算剩餘 <strong>${remaining}/${GEMINI_GROUNDED_DAILY_LIMIT}</strong>` +
+        `｜台灣 ${taiwanResetClock(resetAt)} 重置｜倒數 <strong class="gemini-reset-countdown">${countdownText(resetAt - now)}</strong>`;
+    }
+
+    if (elements.geminiUsageDetail) {
+      elements.geminiUsageDetail.innerHTML =
+        `${operationText}｜今日 ${Number(geminiUsage.requests || 0)} 次 ` +
+        `問答${Number(geminiUsage.chat_requests || 0)}／風險${Number(geminiUsage.risk_requests || 0)}` +
+        `｜累計 <strong>${Number(geminiUsage.total_tokens || 0).toLocaleString()} tokens</strong>`;
+    }
 
     elements.geminiUsage.title =
-      "Token 來自 Gemini usageMetadata。RPD 剩餘量是本瀏覽器對本頁成功呼叫的本機估算，包含左側問答與分析風險；其他裝置、AI Studio 或其他程式的同專案用量不會自動計入。";
+      "點擊紅色問號查看本次與今日用量。Token 來自 Gemini usageMetadata；RPD 剩餘量是本瀏覽器對本頁成功呼叫的本機估算。";
   }
 
   function recordGeminiUsage(usage, options = {}) {
@@ -2876,6 +2884,23 @@
     if (event.target === elements.riskDialog) elements.riskDialog.close();
   });
 
+  function setGeminiUsagePopover(open) {
+    if (!elements.geminiUsagePopover || !elements.geminiUsageHelp) return;
+    const shouldOpen = Boolean(open);
+    elements.geminiUsagePopover.hidden = !shouldOpen;
+    elements.geminiUsageHelp.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+  }
+
+  elements.geminiUsageHelp?.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    setGeminiUsagePopover(elements.geminiUsagePopover?.hidden);
+  });
+
+  document.addEventListener("click", event => {
+    if (!elements.geminiUsage?.contains(event.target)) setGeminiUsagePopover(false);
+  });
+
   elements.chatToggle.setAttribute("aria-expanded", "false");
   elements.chatToggle.addEventListener("click", () => {
     setDrawer(!elements.drawer.classList.contains("open"));
@@ -3001,10 +3026,13 @@
 
   persistAiSettings();
   renderGeminiUsage();
-  window.setInterval(() => renderGeminiUsage(), 1000);
+  window.setInterval(() => renderGeminiUsage(), 15000);
   window.addEventListener("resize", hideCard);
   window.addEventListener("keydown", event => {
-    if (event.key === "Escape") hideCard();
+    if (event.key === "Escape") {
+      hideCard();
+      setGeminiUsagePopover(false);
+    }
   });
 
   window.TennisRatioApp = {

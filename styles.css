@@ -919,28 +919,110 @@ table.main{
 }
 
 
-/* Gemini Worker 共用 Secret + 全域用量面板 */
+/* Gemini Worker 共用 Secret + 全域用量面板：單列摘要＋點擊明細 */
 .gemini-usage-board{
-  flex:1 1 470px;
-  min-width:390px;
-  max-width:650px;
-  padding:6px 10px;
+  position:relative;
+  flex:1 1 560px;
+  min-width:500px;
+  max-width:760px;
+  padding:7px 9px;
   border:1px solid #26536f;
   border-radius:8px;
   background:linear-gradient(135deg,#0c1c2d,#091421);
   box-shadow:inset 0 1px 0 #8be8ff12,0 0 12px #37c9ed12;
   color:#91a9bb;
   font-size:10px;
-  line-height:1.42;
+  line-height:1.35;
+  overflow:visible;
 }
-.gemini-usage-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:2px;color:#7fe8ff;font-weight:900}
-.gemini-usage-title b{padding:1px 6px;border:1px solid #33536a;border-radius:999px;background:#102437;color:#9dc6d8;font-size:9px;white-space:nowrap}
-.gemini-usage-main{color:#a7bac8;white-space:normal}
-.gemini-usage-main strong{color:#d9f7ff}
-.gemini-usage-main em{color:#91b6c8;font-style:normal}
-.gemini-usage-sub{margin-top:1px;color:#d8ba6d;white-space:normal}
-.gemini-usage-sub strong{color:#ffe18b}
-.gemini-reset-countdown{font-variant-numeric:tabular-nums;letter-spacing:.35px}
+.gemini-usage-row{
+  display:grid;
+  grid-template-columns:max-content minmax(0,1fr) 23px;
+  align-items:center;
+  gap:10px;
+  min-height:23px;
+}
+.gemini-usage-model{
+  color:#7fe8ff;
+  font-weight:900;
+  white-space:nowrap;
+}
+.gemini-usage-rpd{
+  min-width:0;
+  overflow:hidden;
+  color:#e1bc63;
+  font-weight:700;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.gemini-usage-rpd strong{color:#ffe18b}
+.gemini-reset-countdown{font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.gemini-usage-help{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:21px;
+  height:21px;
+  padding:0;
+  border:1px solid #a33b49;
+  border-radius:50%;
+  background:#32151d;
+  color:#ff6877;
+  font-size:14px;
+  font-weight:1000;
+  line-height:1;
+  cursor:pointer;
+  box-shadow:0 0 8px #ff546633;
+}
+.gemini-usage-help:hover,
+.gemini-usage-help:focus-visible,
+.gemini-usage-help[aria-expanded="true"]{
+  outline:none;
+  border-color:#ff6a78;
+  background:#4a1822;
+  color:#ffd7dc;
+  box-shadow:0 0 0 2px #ff5b6b22,0 0 10px #ff526655;
+}
+.gemini-usage-popover{
+  position:absolute;
+  z-index:90;
+  top:calc(100% + 6px);
+  right:7px;
+  width:min(410px,calc(100vw - 36px));
+  padding:10px 12px;
+  border:1px solid #6f5a2a;
+  border-radius:8px;
+  background:#101821;
+  color:#d7e4ec;
+  box-shadow:0 16px 36px #000b,0 0 0 1px #d9b84a17 inset;
+}
+.gemini-usage-popover[hidden]{display:none}
+.gemini-usage-popover::before{
+  content:"";
+  position:absolute;
+  right:7px;
+  top:-6px;
+  width:10px;
+  height:10px;
+  border-left:1px solid #6f5a2a;
+  border-top:1px solid #6f5a2a;
+  background:#101821;
+  transform:rotate(45deg);
+}
+.gemini-usage-popover-title{
+  margin-bottom:5px;
+  color:#f1c866;
+  font-size:10px;
+  font-weight:900;
+}
+.gemini-usage-detail{
+  color:#d9e7ef;
+  font-size:11px;
+  font-weight:700;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+.gemini-usage-detail strong{color:#fff1a5}
 .settings-field .password-wrap{display:flex;gap:6px;align-items:center}
 .settings-field .password-wrap input{flex:1;min-width:0}
 .settings-field .password-wrap .chat-icon{flex:0 0 36px;width:36px;height:38px}
@@ -955,5 +1037,5 @@ table.main{
   .gemini-usage-board{order:3;flex-basis:100%;max-width:none;min-width:0}
 }
 @media(max-width:850px){
-  .gemini-usage-board{margin-top:7px;min-width:0;width:100%}
+  .gemini-usage-board{margin-top:7px;min-width:0;width:100%}.gemini-usage-row{grid-template-columns:1fr 23px;gap:6px}.gemini-usage-model{grid-column:1}.gemini-usage-rpd{grid-column:1/-1;grid-row:2;white-space:normal}.gemini-usage-help{grid-column:2;grid-row:1}
 }
