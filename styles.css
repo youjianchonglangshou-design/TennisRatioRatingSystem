@@ -1351,3 +1351,19 @@ table.main{
     padding-left:7px;
   }
 }
+
+/* ============================================================
+   Status Cockpit v1 Hotfix 1｜風險掃描資訊固定靠最右
+   ============================================================ */
+.status-line .risk-status{
+  margin-left:auto;
+}
+.status-line .risk-cache-status,
+.status-line .visible-count{
+  margin-left:9px;
+}
+@media(max-width:850px){
+  .status-line .risk-status{
+    margin-left:auto;
+  }
+}
