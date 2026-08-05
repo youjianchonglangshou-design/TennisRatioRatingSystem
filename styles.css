@@ -1408,3 +1408,44 @@ table.main{
   text-decoration-color:#ff758455;
   text-underline-offset:3px;
 }
+
+
+/* ============================================================
+   Full Analysis Password Gate v1
+   「重新抓取＋完整分析」需先由 Cloudflare Secret 驗證。
+   ============================================================ */
+.full-analysis-auth-dialog{
+  width:min(450px,calc(100vw - 28px));
+  padding:0;
+  border:1px solid #37526a;
+  border-radius:13px;
+  background:#091421;
+  color:#eaf4ff;
+  box-shadow:0 26px 78px #000d,0 0 0 1px #7bdcff0d inset;
+}
+.full-analysis-auth-dialog::backdrop{background:#000a;backdrop-filter:blur(4px)}
+.full-analysis-auth-card{padding:15px 16px 16px}
+.full-analysis-auth-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding-bottom:11px;border-bottom:1px solid #263f55}
+.full-analysis-auth-kicker{margin-bottom:4px;color:#f2c864;font-size:9px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.full-analysis-auth-head h2{margin:0;color:#8ce9ff;font-size:17px;line-height:1.25}
+.full-analysis-auth-head p{margin:7px 0 0;color:#8ca4b8;font-size:10px;line-height:1.55}
+.full-analysis-auth-close{flex:0 0 29px;width:29px;height:29px;padding:0;border:1px solid #40556a;border-radius:7px;background:#101f30;color:#dce9f4;font-size:18px;line-height:1;cursor:pointer}
+.full-analysis-auth-close:hover,.full-analysis-auth-close:focus-visible{outline:none;border-color:#73bdff;color:#fff;box-shadow:0 0 0 2px #65baff1c}
+.full-analysis-auth-field{display:block;margin-top:13px}
+.full-analysis-auth-field>span{display:block;margin-bottom:6px;color:#cfe0eb;font-size:11px;font-weight:900}
+.full-analysis-password-wrap{display:flex;align-items:center;gap:7px}
+.full-analysis-password-wrap input{flex:1;min-width:0;height:38px;padding:0 11px;border:1px solid #35536d;border-radius:8px;background:#081321;color:#f5fbff;font:inherit;font-size:13px;outline:none}
+.full-analysis-password-wrap input:focus{border-color:#70cdf0;box-shadow:0 0 0 2px #5fdcff1b,0 0 12px #36c7ff18}
+.full-analysis-password-toggle{flex:0 0 38px;width:38px;height:38px;padding:0;border:1px solid #35536d;border-radius:8px;background:#0d1c2c;color:#8dcce5;font-size:14px;cursor:pointer}
+.full-analysis-password-toggle:hover,.full-analysis-password-toggle:focus-visible,.full-analysis-password-toggle[aria-pressed="true"]{outline:none;border-color:#b895ff;color:#e7dcff;background:#1c1930}
+.full-analysis-auth-field small{display:block;margin-top:6px;color:#718a9d;font-size:9px;line-height:1.45}
+.full-analysis-auth-status{min-height:18px;margin-top:10px;padding:6px 8px;border:1px solid transparent;border-radius:7px;color:#8ea5b8;font-size:10px;line-height:1.45}
+.full-analysis-auth-status:empty{padding:0;min-height:0}
+.full-analysis-auth-status.checking{border-color:#32556b;background:#0c1c2a;color:#82def7}
+.full-analysis-auth-status.error{border-color:#7a3140;background:#241219;color:#ff9aa5}
+.full-analysis-auth-status.success{border-color:#296548;background:#10291f;color:#86e0ae}
+.full-analysis-auth-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px}
+.full-analysis-auth-submit{border-color:#397796;background:linear-gradient(180deg,#153850,#102a3d);color:#a9edff;font-weight:900}
+.full-analysis-auth-submit:hover,.full-analysis-auth-submit:focus-visible{border-color:#72d7fa;background:linear-gradient(180deg,#1b4966,#12334a);color:#effcff;box-shadow:0 0 11px #4dd7ff29}
+.full-analysis-auth-submit:disabled,.full-analysis-auth-actions .control:disabled,.full-analysis-auth-close:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:560px){.full-analysis-auth-card{padding:13px}.full-analysis-auth-head h2{font-size:16px}}

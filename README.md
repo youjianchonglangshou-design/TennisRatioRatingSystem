@@ -720,3 +720,25 @@ TELEGRAM_BOT_TOKEN
 ```
 
 Telegram 通知失敗不會回滾已完成分析或刪除 R2 結果；主畫面會明確顯示 Telegram 未送出與錯誤原因。
+
+
+## 24. 完整分析啟動密碼
+
+「重新抓取＋完整分析」現在是受保護操作。點擊按鈕後先顯示密碼卡片，驗證成功才會抓取 Arcadia 並覆蓋 R2 的 `matchups.json`、`markets.json` 與 `today_matches.json`。
+
+Cloudflare Worker 新增 Secret：
+
+```text
+FULL_ANALYSIS_PASSWORD
+```
+
+密碼只存在 Cloudflare Secret，不寫入 GitHub、`app.js`、localStorage 或 R2。驗證成功後，Worker 只回傳有效 10 分鐘的短期 HMAC 授權；前端僅保存在記憶體，並於第一次受保護寫入完成後清除。
+
+Worker 的 `/upload` 路由同時要求：
+
+```text
+Authorization: Bearer UPLOAD_TOKEN
+X-Full-Analysis-Token: 短期啟動授權
+```
+
+因此即使直接略過前端卡片，也無法在沒有 Cloudflare 密碼驗證的情況下覆蓋最新 Pinnacle 清單。`只重跑目前清單` 與 `分析風險` 不受此密碼限制。

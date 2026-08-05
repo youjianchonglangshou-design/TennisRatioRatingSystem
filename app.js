@@ -37,6 +37,7 @@
   const GEMINI_GROUNDED_DAILY_LIMIT = 500;
   const ANALYSIS_TOAST_DURATION_MS = 18000;
   const TELEGRAM_NOTIFY_PATH = "/telegram/notify";
+  const FULL_ANALYSIS_AUTH_PATH = "/auth/full-analysis";
   const DEFAULT_TENNIS_PROMPT = "你是一般用途的 Gemini 助理，同時熟悉 TennisRatio 網球賽事分析。使用繁體中文，回答清楚、精確、可覆盤。可以回答一般問題；涉及近期消息時使用 Google Search 並列出來源。以系統提供的 Pinnacle 與 ratio_analysis.json 為主要依據，不捏造賠率、勝率、評級、D值或五項比較。區分『較可能獲勝』與『目前賠率是否值得下注』，不要承諾獲利。";
 
   const state = {
@@ -60,7 +61,11 @@
     toastTimer: null,
     completionNotificationPending: false,
     completionNotificationMode: null,
-    lastRiskDiagnostic: null
+    lastRiskDiagnostic: null,
+    fullAnalysisAccessToken: "",
+    fullAnalysisAccessExpiresAt: "",
+    fullAnalysisAuthResolver: null,
+    fullAnalysisAuthVerified: false
   };
 
   const elements = {
@@ -98,7 +103,15 @@
     analysisToast: document.getElementById("analysis-toast"),
     analysisToastTitle: document.getElementById("analysis-toast-title"),
     analysisToastBody: document.getElementById("analysis-toast-body"),
-    analysisToastClose: document.getElementById("analysis-toast-close")
+    analysisToastClose: document.getElementById("analysis-toast-close"),
+    fullAnalysisAuthDialog: document.getElementById("full-analysis-auth-dialog"),
+    fullAnalysisAuthForm: document.getElementById("full-analysis-auth-form"),
+    fullAnalysisPassword: document.getElementById("full-analysis-password"),
+    fullAnalysisPasswordToggle: document.getElementById("full-analysis-password-toggle"),
+    fullAnalysisAuthStatus: document.getElementById("full-analysis-auth-status"),
+    fullAnalysisAuthSubmit: document.getElementById("full-analysis-auth-submit"),
+    fullAnalysisAuthCancel: document.getElementById("full-analysis-auth-cancel"),
+    fullAnalysisAuthClose: document.getElementById("full-analysis-auth-close")
   };
 
   function taiwanTimeText(value) {
@@ -580,6 +593,101 @@
       throw new Error(`${path} HTTP ${response.status}`);
     }
     return response.json();
+  }
+
+  function setFullAnalysisAuthStatus(message = "", tone = "") {
+    const node = elements.fullAnalysisAuthStatus;
+    if (!node) return;
+    node.textContent = String(message || "");
+    node.className = "full-analysis-auth-status";
+    if (tone) node.classList.add(tone);
+  }
+
+  function finishFullAnalysisAuth(value) {
+    const resolver = state.fullAnalysisAuthResolver;
+    state.fullAnalysisAuthResolver = null;
+    if (typeof resolver === "function") resolver(value || null);
+  }
+
+  function closeFullAnalysisAuth(result = null) {
+    if (elements.fullAnalysisPassword) {
+      elements.fullAnalysisPassword.value = "";
+      elements.fullAnalysisPassword.type = "password";
+    }
+    if (elements.fullAnalysisPasswordToggle) {
+      elements.fullAnalysisPasswordToggle.setAttribute("aria-pressed", "false");
+    }
+    if (elements.fullAnalysisAuthDialog?.open) {
+      state.fullAnalysisAuthVerified = Boolean(result);
+      elements.fullAnalysisAuthDialog.close();
+    } else {
+      finishFullAnalysisAuth(result);
+    }
+  }
+
+  function requestFullAnalysisAuthorization() {
+    if (!elements.fullAnalysisAuthDialog) {
+      return Promise.reject(new Error("完整分析密碼卡片尚未載入。"));
+    }
+    if (state.fullAnalysisAuthResolver) {
+      return Promise.reject(new Error("完整分析密碼驗證已在進行中。"));
+    }
+    state.fullAnalysisAccessToken = "";
+    state.fullAnalysisAccessExpiresAt = "";
+    state.fullAnalysisAuthVerified = false;
+    setFullAnalysisAuthStatus(
+      "密碼只會送往 Cloudflare Worker 驗證，不會存入瀏覽器。"
+    );
+    if (elements.fullAnalysisPassword) {
+      elements.fullAnalysisPassword.value = "";
+      elements.fullAnalysisPassword.type = "password";
+    }
+    if (elements.fullAnalysisPasswordToggle) {
+      elements.fullAnalysisPasswordToggle.setAttribute("aria-pressed", "false");
+    }
+    elements.fullAnalysisAuthDialog.showModal();
+    requestAnimationFrame(() => elements.fullAnalysisPassword?.focus());
+    return new Promise(resolve => {
+      state.fullAnalysisAuthResolver = resolve;
+    });
+  }
+
+  async function verifyFullAnalysisPassword(password) {
+    const response = await fetch(`${WORKER_URL}${FULL_ANALYSIS_AUTH_PATH}`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ password }),
+      cache: "no-store"
+    });
+    const text = await response.text();
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = { error: text };
+    }
+    if (!response.ok || payload?.ok === false) {
+      const error = new Error(
+        payload?.error || payload?.detail || `HTTP ${response.status}`
+      );
+      error.status = response.status;
+      error.retryAfterSeconds = Number(
+        payload?.retry_after_seconds ||
+        response.headers.get("Retry-After") ||
+        0
+      );
+      throw error;
+    }
+    const token = String(payload?.token || "").trim();
+    if (!token) throw new Error("Worker 未回傳完整分析啟動授權。");
+    return {
+      token,
+      expiresAt: String(payload?.expires_at || ""),
+      expiresInSeconds: Number(payload?.expires_in_seconds || 0)
+    };
   }
 
   function configurationValue(value, label) {
@@ -2164,7 +2272,7 @@
     return runAnalysisPhase4(savedBundle, uploadToken);
   }
 
-  async function runFullPipelinePhase4() {
+  async function runFullPipelinePhase4(fullAnalysisToken) {
     cancelExternalRiskScan();
     setRunning(true);
     elements.statusLine.classList.remove("error");
@@ -2202,8 +2310,12 @@
       await r2Client.uploadOddsBundle(
         WORKER_URL,
         uploadToken,
-        { matchups, markets, todayMatches: today }
+        { matchups, markets, todayMatches: today },
+        { fullAnalysisToken }
       );
+      // 啟動授權只用於本次完整分析的第一個受保護寫入。
+      state.fullAnalysisAccessToken = "";
+      state.fullAnalysisAccessExpiresAt = "";
 
       const savedToday = await r2Client.fetchJson(WORKER_URL, "today_matches.json");
       updateTodayState(savedToday);
@@ -2216,6 +2328,8 @@
         `完整分析執行失敗：${error.message}`;
       await notifyPipelineFailure(error);
     } finally {
+      state.fullAnalysisAccessToken = "";
+      state.fullAnalysisAccessExpiresAt = "";
       setRunning(false);
     }
   }
@@ -3013,12 +3127,22 @@
         const mode =
           String(button.dataset.mode || "");
 
+        let fullAnalysisToken = "";
+        if (mode === "full") {
+          const authorization =
+            await requestFullAnalysisAuthorization();
+          if (!authorization?.token) return;
+          fullAnalysisToken = authorization.token;
+          state.fullAnalysisAccessToken = authorization.token;
+          state.fullAnalysisAccessExpiresAt = authorization.expiresAt || "";
+        }
+
         await prepareCompletionNotification(
           mode
         );
 
         if (mode === "full") {
-          await runFullPipelinePhase4();
+          await runFullPipelinePhase4(fullAnalysisToken);
         } else if (mode === "reanalyze") {
           await rerunCurrentListPhase4();
         } else if (mode === "risk") {
@@ -3118,6 +3242,101 @@
     if (!row) return;
     const entry = riskEntryMap().get(aiClient.externalRiskMatchKey(row));
     if (entry) openRiskDialog(entry);
+  });
+
+  elements.fullAnalysisPasswordToggle?.addEventListener("click", () => {
+    const input = elements.fullAnalysisPassword;
+    if (!input) return;
+    const showing = input.type === "text";
+    input.type = showing ? "password" : "text";
+    elements.fullAnalysisPasswordToggle.setAttribute(
+      "aria-pressed",
+      showing ? "false" : "true"
+    );
+    input.focus();
+  });
+
+  elements.fullAnalysisAuthCancel?.addEventListener(
+    "click",
+    () => closeFullAnalysisAuth(null)
+  );
+  elements.fullAnalysisAuthClose?.addEventListener(
+    "click",
+    () => closeFullAnalysisAuth(null)
+  );
+  elements.fullAnalysisAuthDialog?.addEventListener("click", event => {
+    if (event.target === elements.fullAnalysisAuthDialog) {
+      closeFullAnalysisAuth(null);
+    }
+  });
+  elements.fullAnalysisAuthDialog?.addEventListener("cancel", event => {
+    event.preventDefault();
+    closeFullAnalysisAuth(null);
+  });
+  elements.fullAnalysisAuthDialog?.addEventListener("close", () => {
+    const result = state.fullAnalysisAuthVerified
+      ? {
+          token: state.fullAnalysisAccessToken,
+          expiresAt: state.fullAnalysisAccessExpiresAt
+        }
+      : null;
+    state.fullAnalysisAuthVerified = false;
+    finishFullAnalysisAuth(result);
+  });
+  elements.fullAnalysisAuthForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const password = String(
+      elements.fullAnalysisPassword?.value || ""
+    );
+    if (!password) {
+      setFullAnalysisAuthStatus("請輸入啟動密碼。", "error");
+      elements.fullAnalysisPassword?.focus();
+      return;
+    }
+    elements.fullAnalysisAuthSubmit.disabled = true;
+    elements.fullAnalysisAuthCancel.disabled = true;
+    elements.fullAnalysisAuthClose.disabled = true;
+    setFullAnalysisAuthStatus(
+      "正在由 Cloudflare Worker 驗證啟動密碼……",
+      "checking"
+    );
+    try {
+      const authorization =
+        await verifyFullAnalysisPassword(password);
+      state.fullAnalysisAccessToken = authorization.token;
+      state.fullAnalysisAccessExpiresAt = authorization.expiresAt || "";
+      setFullAnalysisAuthStatus(
+        "驗證成功，正在啟動完整分析……",
+        "success"
+      );
+      setTimeout(() => {
+        closeFullAnalysisAuth({
+          token: authorization.token,
+          expiresAt: authorization.expiresAt || ""
+        });
+      }, 220);
+    } catch (error) {
+      const status = Number(error?.status || 0);
+      const retry = Number(error?.retryAfterSeconds || 0);
+      let message = error?.message || "啟動密碼驗證失敗。";
+      if (status === 401) {
+        message = "啟動密碼不正確，完整分析尚未執行。";
+      } else if (status === 429) {
+        message = retry > 0
+          ? `密碼嘗試次數過多，請 ${retry} 秒後再試。`
+          : "密碼嘗試次數過多，請稍後再試。";
+      } else if (status === 503) {
+        message = "Cloudflare 尚未設定 FULL_ANALYSIS_PASSWORD Secret。";
+      } else if (!status) {
+        message = "無法連線 Cloudflare Worker，完整分析尚未執行。";
+      }
+      setFullAnalysisAuthStatus(message, "error");
+      elements.fullAnalysisPassword?.select();
+    } finally {
+      elements.fullAnalysisAuthSubmit.disabled = false;
+      elements.fullAnalysisAuthCancel.disabled = false;
+      elements.fullAnalysisAuthClose.disabled = false;
+    }
   });
 
   document.getElementById("risk-dialog-close").addEventListener("click", () => elements.riskDialog.close());

@@ -2345,18 +2345,25 @@
     return response.json();
   }
 
-  async function uploadOddsBundle(workerUrl, uploadToken, bundle) {
+  async function uploadOddsBundle(workerUrl, uploadToken, bundle, options = {}) {
     const base = normalizeBaseUrl(workerUrl);
     const token = String(uploadToken || "").trim();
+    const fullAnalysisToken = String(
+      options.fullAnalysisToken || ""
+    ).trim();
     if (!base) throw new Error("WORKER_URL 尚未設定。");
     if (!token) throw new Error("WORKER_UPLOAD_TOKEN 尚未填入。");
+    if (!fullAnalysisToken) {
+      throw new Error("完整分析啟動授權不存在，請重新輸入啟動密碼。");
+    }
 
     const response = await fetch(`${base}/upload`, {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        "X-Full-Analysis-Token": fullAnalysisToken
       },
       body: JSON.stringify({
         matchups: bundle.matchups,
