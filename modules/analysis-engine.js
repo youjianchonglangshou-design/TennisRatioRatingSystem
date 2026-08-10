@@ -17,7 +17,7 @@
   const MODEL_ORIENTATION = "pinnacle_lower_odds_hot_first_formula_b";
   const BO3_MODEL_NAME = "BO3 Mechanical v1.0";
   const BO3_MODEL_VERSION = "1.0";
-  const APP_VERSION = "4.4.10-rating65-ab-gate";
+  const APP_VERSION = "4.4.11-learning-snapshot-v1";
 
   const REQUIRED_METRICS = [
     "win_percentage",
@@ -1056,6 +1056,8 @@
       : utils.matchInfo(row);
     return addUiAliases({
       項次: row?.項次 ?? null,
+      match_id: row?.match_id ?? info?.match_id ?? null,
+      Pinnacle賽事ID: row?.Pinnacle賽事ID ?? info?.pinnacle_matchup_id ?? null,
       日期時間: row?.日期時間 ?? null,
       聯賽: row?.聯賽 ?? null,
       主場: row?.主場 ?? null,
@@ -1080,6 +1082,13 @@
       評級EV百分比: null,
       公式B狀態: null,
       評級: "尚未分析",
+      "AI自己的想法": {
+        狀態: "pending",
+        判定: "待Learning模型",
+        熱門方勝率: null,
+        模型版本: null,
+        已結算獨立比賽: 0
+      },
       判定原因: [],
       分析狀態: "pending",
       已過期: isExpired,

@@ -416,6 +416,8 @@
     const surface = options.surface || null;
     const surfaceSource = options.surfaceSource || null;
     return {
+      match_id: row?.match_id ?? null,
+      pinnacle_matchup_id: row?.Pinnacle賽事ID ?? null,
       source: surface && surfaceSource ? `Pinnacle＋${surfaceSource}` : "Pinnacle",
       display_text: league,
       tournament_name: tournamentName(league) || league || null,
@@ -2110,6 +2112,8 @@
 
     return {
       項次: row?.項次 ?? null,
+      match_id: row?.match_id ?? null,
+      Pinnacle賽事ID: row?.Pinnacle賽事ID ?? null,
       日期時間: row?.日期時間 ?? null,
       聯賽: row?.聯賽 ?? null,
       主場: row?.主場 ?? null,

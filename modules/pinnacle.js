@@ -355,8 +355,11 @@
         if (!inRange) continue;
       }
 
+      const pinnacleMatchupId = matchup.id ?? null;
       rows.push({
         _sort: start.sortValue,
+        match_id: pinnacleMatchupId !== null ? `pinnacle_${String(pinnacleMatchupId)}` : null,
+        Pinnacle賽事ID: pinnacleMatchupId,
         日期時間: start.text,
         聯賽: league,
         主場: participants.home || "未知",
@@ -379,7 +382,8 @@
     const maxOdds = finiteNumber(options.maxOdds) ?? 1.75;
     const parts = taipeiParts(now);
     const canonicalFields = [
-      "項次", "日期時間", "聯賽", "主場", "客場", "主場賠率", "客場賠率"
+      "項次", "match_id", "Pinnacle賽事ID", "日期時間", "聯賽",
+      "主場", "客場", "主場賠率", "客場賠率"
     ];
     const canonicalMatches = (Array.isArray(matches) ? matches : [])
       .filter(item => item && typeof item === "object")

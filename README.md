@@ -742,3 +742,13 @@ X-Full-Analysis-Token: 短期啟動授權
 ```
 
 因此即使直接略過前端卡片，也無法在沒有 Cloudflare 密碼驗證的情況下覆蓋最新 Pinnacle 清單。`只重跑目前清單` 與 `分析風險` 不受此密碼限制。
+
+
+## Learning 賽後學習資料層 v1
+
+- `modules/learning.js` 是固定 Model Runner，只讀 Worker `/learning/current-model`。
+- 每次分析上傳時，Worker 同時維持 `ratio_analysis.json` 最新檔，並建立 `analysis/YYYY/MM/DD/ratio_analysis_YYYYMMDD_HHMMSS_mmm_xxxxxx.json` 永久快照。
+- Pinnacle `matchup.id` 會以 `match_id` / `Pinnacle賽事ID` 一路保留到分析結果，用來辨識同一場的多個快照。
+- Worker 會把未結算比賽登記在 `learning/pending.json`；排程或手動 `/learning/settle` 只在 365Scores 明確完賽時建立 Result / Experience。
+- 同一場多個 Snapshot 全部保留，但 Experience 會使用 `sample_weight=1/該場快照數`，避免重複分析造成多倍權重。
+- 尚未建立正式模型時，主表格 `AI自己的想法` 顯示「學習中」，不偽造勝率。

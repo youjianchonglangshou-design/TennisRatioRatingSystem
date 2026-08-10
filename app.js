@@ -6,12 +6,14 @@
   const r2Client = window.TennisRatioR2Client;
   const sourcePipeline = window.TennisRatioSourcePipeline;
   const analysisEngine = window.TennisRatioAnalysisEngine;
+  const learning = window.TennisRatioLearning;
   const aiClient = window.TennisRatioAI;
   if (!renderer) throw new Error("renderer.js 尚未載入。");
   if (!pinnacle) throw new Error("pinnacle.js 尚未載入。");
   if (!r2Client) throw new Error("r2-client.js 尚未載入。");
   if (!sourcePipeline) throw new Error("source-pipeline.js 尚未載入。");
   if (!analysisEngine) throw new Error("analysis-engine.js 尚未載入。");
+  if (!learning) throw new Error("learning.js 尚未載入。");
   if (!aiClient) throw new Error("ai-services.js 尚未載入。");
 
   // ============================================================
@@ -2185,7 +2187,7 @@
     elements.statusText.textContent =
       `Phase 4｜開始執行 Formula B、15項、5項、D值、EV、評級與BO3……`;
 
-    const analysis = await analysisEngine.buildAnalysis(
+    let analysis = await analysisEngine.buildAnalysis(
       sourceBundle,
       state.config,
       {
@@ -2196,7 +2198,11 @@
     );
 
     elements.statusText.textContent =
-      `Phase 4｜已完成 ${analysis.matches.length} 場分析；正在寫入 R2 ratio_analysis.json……`;
+      `Phase 4｜已完成 ${analysis.matches.length} 場Formula B；正在讀取Learning正式模型……`;
+    analysis = await learning.applyToAnalysis(analysis, WORKER_URL);
+
+    elements.statusText.textContent =
+      `Phase 4｜Learning欄位已建立；正在寫入 R2 最新檔＋永久時間戳快照……`;
     const uploadResult = await r2Client.uploadAnalysis(
       WORKER_URL,
       uploadToken,
@@ -2230,7 +2236,7 @@
         0
       }｜R2 ${
         uploadResult.ratioAnalysisBytes || 0
-      } bytes｜準備執行分析風險`;
+      } bytes｜快照 ${uploadResult.analysisSnapshotKey || "已建立"}｜準備執行分析風險`;
 
     // 完整分析與目前清單重跑，最後都進入
     // 與「分析風險」按鈕相同的共用流程。

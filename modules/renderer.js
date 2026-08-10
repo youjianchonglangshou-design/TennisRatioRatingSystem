@@ -851,6 +851,36 @@
     return `<div class="tip-title integrated-title"><span>TennisRatio 雙方數據比較</span><strong>＋</strong><span class="integrated-rating-title">評級熱門方勝率</span>${h2hTitle}<span class="card-item">${escapeHtml(itemText)}</span></div><div class="surface">Last 52 Weeks｜${escapeHtml(ratio["場地"] || "場地待補")}　來源：${escapeHtml(ratio["場地來源"] || "待補")}</div><div class="analysis-grid"><section class="stats-tabs-shell" data-default-stats-tab="${defaultScope}"><div class="stats-tab-list" role="tablist" aria-label="TennisRatio數據範圍"><button type="button" class="stats-tab${defaultScope === "all" ? " active" : ""}" data-stats-tab="all" role="tab" aria-selected="${defaultScope === "all" ? "true" : "false"}">All Levels｜同場地</button><button type="button" class="stats-tab${defaultScope === "main" ? " active" : ""}" data-stats-tab="main" role="tab" aria-selected="${defaultScope === "main" ? "true" : "false"}">Main Tour｜同場地</button></div><div class="stats-tab-panel${defaultScope === "all" ? " active" : ""}" data-stats-panel="all" role="tabpanel">${allPanel}</div><div class="stats-tab-panel${defaultScope === "main" ? " active" : ""}" data-stats-panel="main" role="tabpanel">${mainPanel}</div>${bo3PredictionPanel(row, { homeName, awayName })}</section><section class="formula-section">${modelDetail(row, { embedded: true })}</section></div>`;
   }
 
+
+  function learningThought(row) {
+    const ai = row?.["AI自己的想法"] && typeof row["AI自己的想法"] === "object"
+      ? row["AI自己的想法"] : {};
+    const status = String(ai?.["狀態"] || "pending");
+    const decision = String(ai?.["判定"] || (status === "pending" ? "待下次分析" : "學習中"));
+    const probability = finiteNumber(ai?.["熱門方勝率"]);
+    const settled = Math.max(0, Math.trunc(finiteNumber(ai?.["已結算獨立比賽"]) || 0));
+    const snapshots = Math.max(0, Math.trunc(finiteNumber(ai?.["學習樣本快照"]) || 0));
+    const version = ai?.["模型版本"] == null ? "—" : String(ai["模型版本"]);
+    const note = String(ai?.["說明"] || "");
+    let tone = "learning";
+    if (decision === "支持") tone = "support";
+    else if (decision === "警示") tone = "warning";
+    else if (decision === "保留") tone = "hold";
+    else if (status === "model_error") tone = "error";
+    const probabilityText = probability === null ? "" : ` ${pct(probability)}`;
+    const title = [
+      `Learning AI：${decision}${probabilityText}`,
+      `模型版本：${version}`,
+      `已結算獨立比賽：${settled}`,
+      `學習快照：${snapshots}`,
+      note
+    ].filter(Boolean).join("｜");
+    return {
+      probability,
+      html: `<span class="learning-thought ${tone}" title="${escapeHtml(title)}"><b>${escapeHtml(decision)}</b>${probability !== null ? `<small>${pct(probability)}</small>` : `<small>${settled ? `已覆盤${settled}場` : "建立資料中"}</small>`}</span>`
+    };
+  }
+
   function renderRow(row, index, options = {}) {
     const rowId = `r${index}`;
     const homeRank = rankValue(row, "home");
@@ -862,6 +892,7 @@
     const awayName = String(row?.["客場"] || "");
     const formulaProbability = row?.["公式B勝率"] ?? row?.["評級勝率"];
     const formulaEv = row?.["公式B EV"] ?? row?.["評級EV"];
+    const aiThought = learningThought(row);
     const model = row?.["模型"] && typeof row["模型"] === "object" ? row["模型"] : {};
     const dScore = finiteNumber(model["D數據差"]);
     const [dSignalClass, dSignalText] = dSignalStyle(dScore);
@@ -900,7 +931,7 @@
       .join(" ")
       .toLocaleLowerCase("zh-Hant");
     const [cardWidth, statsMin] = integratedCardDimensions(homeName, awayName);
-    const rowHtml = `<tr data-rating="${escapeHtml(rating)}" data-d-signal="${escapeHtml(dSignalClass)}" data-cold-candidate="${coldCandidate ? "1" : "0"}" data-search="${escapeHtml(searchText)}"><td data-sort="${sortableValue(row?.["項次"], true)}">${escapeHtml(row?.["項次"])}</td><td data-sort="${sortableValue(row?.["日期時間"])}" class="date">${escapeHtml(row?.["日期時間"])}</td><td data-sort="${sortableValue(matchSort)}"><span class="hover info-pill" data-template="${rowId}-match" data-card-kind="match-card" tabindex="0">${summary}</span></td><td class="copy-column"><button type="button" class="copy-match" data-copy-kind="match" data-copy-date="${escapeHtml(copyDate)}" data-copy-home="${escapeHtml(homeName)}" data-copy-away="${escapeHtml(awayName)}" title="複製日期與對戰" aria-label="複製日期與對戰">${copyIcon()}</button></td><td data-sort="${sortableValue(homeName)}" class="player home-player"><div class="player-entry"><span class="player-name">${homeLabel}</span>${rankPill(homeRank, { betterRanked: homeBetter })}</div></td><td data-sort="${sortableValue(awayName)}" class="player away-player"><div class="player-entry"><span class="player-name">${awayLabel}</span>${rankPill(awayRank, { betterRanked: awayBetter })}</div></td><td data-sort="${sortableValue(row?.["熱門方賠率"], true)}" class="num">${odds(row?.["熱門方賠率"])}</td><td data-sort="${sortableValue(row?.["賠轉勝率"], true)}" class="num">${pct(row?.["賠轉勝率"])}</td><td data-sort="${sortableValue(formulaProbability, true)}" class="num"><span class="model-value">${pct(formulaProbability)}</span></td><td data-sort="${sortableValue(formulaEv, true)}" class="num ev">${pct(formulaEv, 2, true)}</td><td data-sort="${sortableValue(({ A: 5, B: 4, C: 3 })[rating] || 0, true)}" class="num rating-cell"><div class="rating-badges"><span class="rating ${ratingClass(rating)} hover rating-trigger" data-template="${rowId}-integrated" data-card-kind="integrated-card" tabindex="0" aria-label="顯示雙方TennisRatio數據與評級勝率計算">${escapeHtml(rating)}</span><span class="d-mini ${dSignalClass}" title="${escapeHtml(dSignalText)}｜D值 ${escapeHtml(numberText(dScore, 3, true))}">${escapeHtml(dCompact)}</span></div></td></tr>`;
+    const rowHtml = `<tr data-rating="${escapeHtml(rating)}" data-d-signal="${escapeHtml(dSignalClass)}" data-cold-candidate="${coldCandidate ? "1" : "0"}" data-search="${escapeHtml(searchText)}"><td data-sort="${sortableValue(row?.["項次"], true)}">${escapeHtml(row?.["項次"])}</td><td data-sort="${sortableValue(row?.["日期時間"])}" class="date">${escapeHtml(row?.["日期時間"])}</td><td data-sort="${sortableValue(matchSort)}"><span class="hover info-pill" data-template="${rowId}-match" data-card-kind="match-card" tabindex="0">${summary}</span></td><td class="copy-column"><button type="button" class="copy-match" data-copy-kind="match" data-copy-date="${escapeHtml(copyDate)}" data-copy-home="${escapeHtml(homeName)}" data-copy-away="${escapeHtml(awayName)}" title="複製日期與對戰" aria-label="複製日期與對戰">${copyIcon()}</button></td><td data-sort="${sortableValue(homeName)}" class="player home-player"><div class="player-entry"><span class="player-name">${homeLabel}</span>${rankPill(homeRank, { betterRanked: homeBetter })}</div></td><td data-sort="${sortableValue(awayName)}" class="player away-player"><div class="player-entry"><span class="player-name">${awayLabel}</span>${rankPill(awayRank, { betterRanked: awayBetter })}</div></td><td data-sort="${sortableValue(row?.["熱門方賠率"], true)}" class="num">${odds(row?.["熱門方賠率"])}</td><td data-sort="${sortableValue(row?.["賠轉勝率"], true)}" class="num">${pct(row?.["賠轉勝率"])}</td><td data-sort="${sortableValue(formulaProbability, true)}" class="num"><span class="model-value">${pct(formulaProbability)}</span></td><td data-sort="${sortableValue(aiThought.probability, true)}" class="num learning-cell">${aiThought.html}</td><td data-sort="${sortableValue(formulaEv, true)}" class="num ev">${pct(formulaEv, 2, true)}</td><td data-sort="${sortableValue(({ A: 5, B: 4, C: 3 })[rating] || 0, true)}" class="num rating-cell"><div class="rating-badges"><span class="rating ${ratingClass(rating)} hover rating-trigger" data-template="${rowId}-integrated" data-card-kind="integrated-card" tabindex="0" aria-label="顯示雙方TennisRatio數據與評級勝率計算">${escapeHtml(rating)}</span><span class="d-mini ${dSignalClass}" title="${escapeHtml(dSignalText)}｜D值 ${escapeHtml(numberText(dScore, 3, true))}">${escapeHtml(dCompact)}</span></div></td></tr>`;
     const templatesHtml = `<template id="${rowId}-match">${matchDetail(row)}</template><template id="${rowId}-integrated" data-card-width="${cardWidth}" data-stats-min="${statsMin}">${integratedAnalysis(row)}</template>`;
     return { rowHtml, templatesHtml };
   }
@@ -964,6 +995,7 @@
     modelDetail,
     bo3PredictionPanel,
     integratedAnalysis,
+    learningThought,
     renderRow,
     renderRows,
     ratingCounts
