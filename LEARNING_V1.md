@@ -40,7 +40,7 @@ learning/
   pending.json
   current_model.json
   models/
-    model_v001.json                    # 第二階段才會開始產生
+    model_v001.json                    # v2：滿100場後自動產生
   experience/
     2026-08-10.json
 
@@ -65,3 +65,6 @@ settlement/
 - `work.js`：同內容的根目錄備份。
 - `Cloudflare/CRON_TRIGGER.md`：台灣時間自動覆盤排程說明。
 - `Cloudflare/wrangler.cron.example.toml`：若使用 Wrangler，可把 triggers 片段併入既有設定。
+
+
+> 已升級至 Learning v2：自動 Training Engine 規格請看 `LEARNING_V2.md`。

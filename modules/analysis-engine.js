@@ -17,7 +17,7 @@
   const MODEL_ORIENTATION = "pinnacle_lower_odds_hot_first_formula_b";
   const BO3_MODEL_NAME = "BO3 Mechanical v1.0";
   const BO3_MODEL_VERSION = "1.0";
-  const APP_VERSION = "4.4.11-learning-snapshot-v1";
+  const APP_VERSION = "4.4.12-learning-training-v2";
 
   const REQUIRED_METRICS = [
     "win_percentage",

@@ -862,6 +862,12 @@
     const snapshots = Math.max(0, Math.trunc(finiteNumber(ai?.["學習樣本快照"]) || 0));
     const version = ai?.["模型版本"] == null ? "—" : String(ai["模型版本"]);
     const note = String(ai?.["說明"] || "");
+    const lowSample = ai?.["低樣本試判"] === true || String(ai?.["樣本階段"] || "") === "low_sample";
+    const trainedMatches = Math.max(0, Math.trunc(finiteNumber(ai?.["訓練資料獨立比賽"]) || 0));
+    const nextTraining = Math.max(0, Math.trunc(finiteNumber(ai?.["下一次訓練門檻"]) || 0));
+    const validationAccuracy = finiteNumber(ai?.["驗證命中率"]);
+    const validationLogLoss = finiteNumber(ai?.["驗證LogLoss"]);
+    const displayDecision = probability !== null && lowSample ? `試判·${decision}` : decision;
     let tone = "learning";
     if (decision === "支持") tone = "support";
     else if (decision === "警示") tone = "warning";
@@ -869,15 +875,19 @@
     else if (status === "model_error") tone = "error";
     const probabilityText = probability === null ? "" : ` ${pct(probability)}`;
     const title = [
-      `Learning AI：${decision}${probabilityText}`,
+      `Learning AI：${displayDecision}${probabilityText}`,
       `模型版本：${version}`,
+      trainedMatches ? `模型資料：${trainedMatches}場` : "",
       `已結算獨立比賽：${settled}`,
       `學習快照：${snapshots}`,
+      validationAccuracy !== null ? `驗證命中率：${pct(validationAccuracy)}` : "",
+      validationLogLoss !== null ? `LogLoss：${numberText(validationLogLoss, 3)}` : "",
+      nextTraining ? `下一次訓練門檻：${nextTraining}場` : "",
       note
     ].filter(Boolean).join("｜");
     return {
       probability,
-      html: `<span class="learning-thought ${tone}" title="${escapeHtml(title)}"><b>${escapeHtml(decision)}</b>${probability !== null ? `<small>${pct(probability)}</small>` : `<small>${settled ? `已覆盤${settled}場` : "建立資料中"}</small>`}</span>`
+      html: `<span class="learning-thought ${tone}" title="${escapeHtml(title)}"><b>${escapeHtml(displayDecision)}</b>${probability !== null ? `<small>${pct(probability)}</small>` : `<small>${settled ? `已覆盤${settled}場` : "建立資料中"}</small>`}</span>`
     };
   }
 

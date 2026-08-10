@@ -167,14 +167,22 @@
   }
 
   function learningPlaceholder(manifest = {}, reason = "尚未建立正式Learning模型") {
+    const settled = Number(manifest?.settled_unique_matches || 0);
+    const firstTarget = Number(manifest?.next_training_at || 100);
+    const progressNote = !manifest?.active_model && settled < firstTarget
+      ? `目前${settled}/${firstTarget}場；達門檻後自動建立第一個Shadow模型。`
+      : reason;
     return {
       狀態: "learning",
       判定: "學習中",
       熱門方勝率: null,
       模型版本: manifest?.active_version ?? null,
-      已結算獨立比賽: Number(manifest?.settled_unique_matches || 0),
+      已結算獨立比賽: settled,
       學習樣本快照: Number(manifest?.experience_snapshots || 0),
-      說明: reason
+      下一次訓練門檻: firstTarget,
+      樣本階段: String(manifest?.sample_stage || "collecting"),
+      低樣本試判: false,
+      說明: progressNote
     };
   }
 
@@ -208,14 +216,29 @@
       try {
         const features = extractFeatures(row);
         const probability = predict(model, features);
+        const datasetMatches = Number(
+          model?.dataset_unique_matches ?? manifest?.active_model_dataset_matches ?? 0
+        );
+        const sampleStage = String(
+          model?.sample_stage || manifest?.sample_stage ||
+          (datasetMatches >= 300 ? "established" : "low_sample")
+        );
+        const validation = model?.metrics?.candidate_validation || {};
         row["AI自己的想法"] = {
           狀態: "active",
           判定: judgement(probability, model),
           熱門方勝率: probability,
           模型版本: manifest?.active_version ?? model?.version ?? null,
           已結算獨立比賽: Number(manifest?.settled_unique_matches || 0),
+          訓練資料獨立比賽: datasetMatches,
           學習樣本快照: Number(manifest?.experience_snapshots || 0),
-          特徵版本: model?.feature_version || "tennisratio-v1",
+          樣本階段: sampleStage,
+          低樣本試判: sampleStage !== "established",
+          驗證命中率: finite(validation?.accuracy),
+          驗證LogLoss: finite(validation?.log_loss),
+          驗證Brier: finite(validation?.brier),
+          下一次訓練門檻: Number(manifest?.next_training_at || 0),
+          特徵版本: model?.feature_version || "tennisratio-learning-v1",
           說明: String(model?.description || "Learning模型依歷史覆盤資料判定。")
         };
       } catch (error) {
@@ -231,8 +254,13 @@
       status: active ? "active" : "learning",
       active_version: manifest?.active_version ?? null,
       active_model: manifest?.active_model ?? null,
+      sample_stage: manifest?.sample_stage || (active ? model?.sample_stage : "collecting"),
+      active_model_dataset_matches: Number(
+        manifest?.active_model_dataset_matches ?? model?.dataset_unique_matches ?? 0
+      ),
       settled_unique_matches: Number(manifest?.settled_unique_matches || 0),
       experience_snapshots: Number(manifest?.experience_snapshots || 0),
+      next_training_at: Number(manifest?.next_training_at || 100),
       checked_at: new Date().toISOString()
     };
     return output;
