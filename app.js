@@ -64,6 +64,9 @@
     completionNotificationPending: false,
     completionNotificationMode: null,
     lastRiskDiagnostic: null,
+    riskCacheCycleId: null,
+    riskCacheCycleAnchorAt: null,
+    riskCacheCycleLegacyMode: false,
     fullAnalysisAccessToken: "",
     fullAnalysisAccessExpiresAt: "",
     fullAnalysisAuthResolver: null,
@@ -176,17 +179,29 @@
     );
   }
 
+  function riskCacheInfo(nowMs = Date.now()) {
+    return aiClient.riskDocumentCacheInfo(
+      state.externalRisk,
+      nowMs
+    );
+  }
+
   function riskCompletedAt() {
+    const info = riskCacheInfo();
     return (
       state.externalRisk?.last_completed_at_taiwan ||
+      info.anchorText ||
       state.externalRisk?.generated_at_taiwan ||
       null
     );
   }
 
   function riskNextRefreshAt() {
+    const info = riskCacheInfo();
     return (
+      state.externalRisk?.cache_expires_at_taiwan ||
       state.externalRisk?.next_refresh_at_taiwan ||
+      info.expiresText ||
       addHoursIso(
         riskCompletedAt(),
         EXTERNAL_RISK_CACHE_HOURS
@@ -771,22 +786,11 @@
       aiClient.externalRiskMatchKey(row);
     const entry = riskEntryMap().get(key);
 
-    if (
-      entry &&
-      aiClient.isRiskCacheFresh(
-        entry,
-        row
-      )
-    ) {
-      return entry;
-    }
-
-    if (
-      entry &&
-      aiClient.isRiskFailureStatus(
-        entry.status
-      )
-    ) {
+    // 顯示與「是否需要重新呼叫 Gemini」分離。
+    // 只要 R2 external_risk.json 中是同一場、同一熱門方、同一風險管線，
+    // 即使六小時已過也先顯示最後一次保存結果；六小時只控制下一次按
+    // 「分析風險」時是否重新搜尋，不讓重新整理頁面把圖示清空。
+    if (entry && aiClient.riskEntryMatchesRow(entry, row)) {
       return entry;
     }
 
@@ -839,128 +843,104 @@
       const entry = map.get(
         aiClient.externalRiskMatchKey(row)
       );
-      if (entry) entries.push(entry);
+      if (entry && aiClient.riskEntryMatchesRow(entry, row)) entries.push(entry);
     }
 
-    const resolvedEntries = entries.filter(
-      entry =>
-        aiClient.isRiskResolvedStatus(
-          entry?.status
-        )
+    const cycleId = String(
+      state.riskCacheCycleId ||
+      state.externalRisk?.cache_cycle_id ||
+      ""
+    ).trim() || null;
+    const legacyCycle = Boolean(state.riskCacheCycleLegacyMode);
+    const cycleMatches = entry =>
+      !cycleId ||
+      aiClient.riskEntryCacheCycleMatches(
+        entry,
+        cycleId,
+        legacyCycle
+      );
+
+    const currentCycleEntries = entries.filter(cycleMatches);
+    const resolvedEntries = currentCycleEntries.filter(
+      entry => aiClient.isRiskResolvedStatus(entry?.status)
     );
-    const incompleteEntries = entries.filter(
-      entry =>
-        aiClient.normalizeRiskStatus(
-          entry?.status
-        ) === "search_incomplete"
+    const incompleteEntries = currentCycleEntries.filter(
+      entry => aiClient.normalizeRiskStatus(entry?.status) === "search_incomplete"
     );
-    const systemErrorEntries = entries.filter(
-      entry =>
-        aiClient.normalizeRiskStatus(
-          entry?.status
-        ) === "system_error"
+    const systemErrorEntries = currentCycleEntries.filter(
+      entry => aiClient.normalizeRiskStatus(entry?.status) === "system_error"
     );
 
     const updatedAt = taipeiIsoText();
     const fullyComplete =
       scanStatus === "complete" &&
-      incompleteEntries.length === 0 &&
       systemErrorEntries.length === 0 &&
       resolvedEntries.length === rows.length;
 
     const previousCompletedAt =
-      state.externalRisk?.
-        last_completed_at_taiwan ||
+      state.externalRisk?.last_completed_at_taiwan || null;
+    const lastCompletedAt = fullyComplete ? updatedAt : previousCompletedAt;
+
+    const anchorAt =
+      state.riskCacheCycleAnchorAt ||
+      state.externalRisk?.cache_anchor_at_taiwan ||
       null;
+    const cacheExpiresAt = anchorAt
+      ? addHoursIso(anchorAt, EXTERNAL_RISK_CACHE_HOURS)
+      : null;
 
-    const lastCompletedAt =
-      fullyComplete
-        ? updatedAt
-        : previousCompletedAt;
-
-    const cacheUntilValues =
-      resolvedEntries
-        .map(entry =>
-          Date.parse(
-            String(entry?.cache_until || "")
-          )
-        )
-        .filter(Number.isFinite);
-
-    const nextRefreshAt =
-      incompleteEntries.length ||
-      systemErrorEntries.length
-        ? null
-        : (
-            cacheUntilValues.length
-              ? taipeiIsoText(
-                  Math.min(...cacheUntilValues)
-                )
-              : null
-          );
+    const cycleProcessedCount = currentCycleEntries.length;
+    const unfinishedCount = Math.max(
+      0,
+      rows.length - resolvedEntries.length - systemErrorEntries.length
+    );
 
     return {
-      version:
-        "external-risk-v1.3-information-first",
+      version: "external-risk-v1.4-r2-shared-cache",
       generated_at_taiwan: updatedAt,
       updated_at_taiwan: updatedAt,
-      last_completed_at_taiwan:
-        lastCompletedAt,
-      next_refresh_at_taiwan:
-        nextRefreshAt,
+      last_completed_at_taiwan: lastCompletedAt,
+      next_refresh_at_taiwan: cacheExpiresAt,
+      cache_cycle_id: cycleId,
+      cache_anchor_at_taiwan: anchorAt,
+      cache_expires_at_taiwan: cacheExpiresAt,
+      cache_scope: "shared_r2_ab_cycle",
       cache_policy: {
+        resolved_hours: 6,
         risk_found_hours: 6,
         clear_hours: 6,
         manual_review_hours: 6,
         search_incomplete_hours: 0,
-        system_error_hours: 0
+        system_error_hours: 0,
+        rule: "R2共用六小時；resolved沿用，search_incomplete/system_error每次可重試"
       },
       display_policy: {
         risk_found: "red_double_exclamation",
         clear: "no_icon",
         manual_review: "blue_gray_information",
         search_incomplete: "gray_retry",
-        system_error: "header_only"
+        system_error: "header_only",
+        stale_resolved: "keep_last_saved_result_until_rescan"
       },
-      analysis_generated_at:
-        state.analysis?.
-          generated_at_taiwan ?? null,
+      analysis_generated_at: state.analysis?.generated_at_taiwan ?? null,
       scan_status:
         systemErrorEntries.length
           ? "system_error"
-          : (
-              incompleteEntries.length
-                ? "partial"
-                : scanStatus
-            ),
+          : (unfinishedCount > 0 ? "partial" : scanStatus),
       scan_total: rows.length,
-      scan_completed:
-        resolvedEntries.length,
-      scan_unfinished:
-        incompleteEntries.length,
-      system_error_count:
-        systemErrorEntries.length,
-      risk_found_count:
-        resolvedEntries.filter(
-          item =>
-            aiClient.normalizeRiskStatus(
-              item?.status
-            ) === "risk_found"
-        ).length,
-      clear_count:
-        resolvedEntries.filter(
-          item =>
-            aiClient.normalizeRiskStatus(
-              item?.status
-            ) === "clear"
-        ).length,
-      manual_review_count:
-        resolvedEntries.filter(
-          item =>
-            aiClient.normalizeRiskStatus(
-              item?.status
-            ) === "manual_review"
-        ).length,
+      scan_processed_in_cycle: cycleProcessedCount,
+      scan_completed: resolvedEntries.length,
+      scan_unfinished: unfinishedCount,
+      system_error_count: systemErrorEntries.length,
+      risk_found_count: resolvedEntries.filter(
+        item => aiClient.normalizeRiskStatus(item?.status) === "risk_found"
+      ).length,
+      clear_count: resolvedEntries.filter(
+        item => aiClient.normalizeRiskStatus(item?.status) === "clear"
+      ).length,
+      manual_review_count: resolvedEntries.filter(
+        item => aiClient.normalizeRiskStatus(item?.status) === "manual_review"
+      ).length,
       entries
     };
   }
@@ -1715,25 +1695,67 @@
       return;
     }
 
-    const existingEntries = Array.isArray(
+    let existingEntries = Array.isArray(
       state.externalRisk?.entries
     )
       ? state.externalRisk.entries
       : [];
+
+    const sharedCache = riskCacheInfo();
+    const reuseResolvedCache = Boolean(sharedCache.fresh);
+    const hadExplicitCycle = Boolean(
+      String(state.externalRisk?.cache_cycle_id || "").trim()
+    );
+
+    // 六小時仍有效：沿用同一 cache cycle。
+    // 六小時已過：建立新的 cycle，所有 A/B 都必須重新搜尋。
+    if (reuseResolvedCache) {
+      state.riskCacheCycleId =
+        String(state.externalRisk?.cache_cycle_id || "").trim() ||
+        `legacy-${Math.max(0, Number(sharedCache.anchorMs || Date.now()))}`;
+      state.riskCacheCycleAnchorAt = sharedCache.anchorText || null;
+      state.riskCacheCycleLegacyMode = !hadExplicitCycle;
+
+      // 舊版 external_risk 沒有 cache_cycle_id。只在「仍位於原六小時內」時
+      // 將既有 resolved 結果歸入同一 legacy cycle；不會跨過期邊界沿用。
+      if (!hadExplicitCycle) {
+        existingEntries = existingEntries.map(entry =>
+          aiClient.isRiskResolvedStatus(entry?.status)
+            ? { ...entry, cache_cycle_id: state.riskCacheCycleId }
+            : entry
+        );
+        state.externalRisk = {
+          ...(state.externalRisk || {}),
+          cache_cycle_id: state.riskCacheCycleId,
+          cache_anchor_at_taiwan: state.riskCacheCycleAnchorAt,
+          cache_expires_at_taiwan: sharedCache.expiresText || null,
+          entries: existingEntries
+        };
+        state.riskCacheCycleLegacyMode = false;
+      }
+    } else {
+      state.riskCacheCycleId =
+        `risk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      state.riskCacheCycleAnchorAt = null;
+      state.riskCacheCycleLegacyMode = false;
+    }
+
+    const cycleId = state.riskCacheCycleId;
     const oldMap = new Map(
       existingEntries.map(entry => [
         String(entry?.match_key || ""),
         entry
       ])
     );
-    const staleRows = rows.filter(row =>
-      !aiClient.isRiskCacheFresh(
-        oldMap.get(
-          aiClient.externalRiskMatchKey(row)
-        ),
-        row
-      )
-    );
+    const staleRows = rows.filter(row => {
+      if (!reuseResolvedCache) return true;
+      const entry = oldMap.get(aiClient.externalRiskMatchKey(row));
+      return !(
+        aiClient.isRiskResolvedStatus(entry?.status) &&
+        aiClient.riskEntryMatchesRow(entry, row) &&
+        aiClient.riskEntryCacheCycleMatches(entry, cycleId, false)
+      );
+    });
 
     if (!staleRows.length) {
       updateRiskStatus();
@@ -1816,6 +1838,9 @@
           rows,
           {
             existingEntries,
+            reuseResolvedCache,
+            cacheCycleId: cycleId,
+            allowLegacyCacheCycle: false,
             workerUrl: WORKER_URL,
             workerToken,
             delayMinMs: 30000,
@@ -1856,6 +1881,20 @@
                 throw new Error(
                   "RISK_SCAN_SUPERSEDED"
                 );
+              }
+
+              // 只有真正新呼叫 Gemini 且得到 resolved 結果，才推進整批六小時快取起點。
+              // 失敗重試不會把舊的 resolved 結果無限延長。
+              if (
+                !progress.fromCache &&
+                aiClient.isRiskResolvedStatus(entry?.status)
+              ) {
+                state.riskCacheCycleAnchorAt =
+                  taipeiIsoText(entry?.checked_at || Date.now());
+                entry = {
+                  ...entry,
+                  cache_cycle_id: cycleId
+                };
               }
 
               mergeRiskEntry(entry);
@@ -1944,6 +1983,16 @@
             entry?.status
           ) === "system_error"
         );
+
+      const refreshedResolved = result.entries.some(entry =>
+        aiClient.isRiskResolvedStatus(entry?.status) &&
+        entry?.used_cache === false &&
+        String(entry?.cache_cycle_id || "") === String(cycleId || "")
+      );
+      if (refreshedResolved) {
+        // 使用整批最後一次成功更新時間作為共享六小時起點。
+        state.riskCacheCycleAnchorAt = taipeiIsoText();
+      }
 
       await persistExternalRisk(
         hasSystemError

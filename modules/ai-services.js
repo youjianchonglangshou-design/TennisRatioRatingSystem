@@ -19,6 +19,7 @@
   const RETRY_NETWORK_SECONDS = 20;
   const RISK_RESOLVED_CACHE_HOURS = 6;
   const RISK_LOOKBACK_DAYS = 90;
+  const RISK_PIPELINE_VERSION = "gemini-search-safe-v2";
 
   const DEFAULT_SYSTEM_PROMPT =
     "你是一般用途的 Gemini 助理，同時熟悉 TennisRatio 網球賽事分析。全程使用繁體中文（台灣用語），回答清楚、精確、可覆盤。" +
@@ -507,12 +508,83 @@
       : 0;
   }
 
-  function isRiskCacheFresh(entry, row, nowMs = Date.now()) {
-    if (!entry || !isRiskResolvedStatus(entry.status)) return false;
-    if (String(entry.risk_pipeline_version || "") !== "gemini-search-safe-v2") return false;
+  function riskEntryMatchesRow(entry, row) {
+    if (!entry || !row) return false;
+    if (String(entry.risk_pipeline_version || "") !== RISK_PIPELINE_VERSION) return false;
     if (String(entry.match_key || "") !== externalRiskMatchKey(row)) return false;
     if (String(entry.hot_player || "") !== String(row?.熱門方 || "")) return false;
-    if (String(entry.rating || "") !== String(row?.評級 || "")) return false;
+    return true;
+  }
+
+  function riskEntryCacheCycleMatches(entry, cycleId, allowLegacy = false) {
+    const expected = String(cycleId || "").trim();
+    const actual = String(entry?.cache_cycle_id || "").trim();
+    if (!expected) return true;
+    if (actual) return actual === expected;
+    return Boolean(allowLegacy);
+  }
+
+  function riskDocumentCacheInfo(document, nowMs = Date.now()) {
+    const doc = document && typeof document === "object" ? document : {};
+    const configuredHours = finiteNumber(
+      doc?.cache_policy?.resolved_hours ??
+      doc?.cache_policy?.risk_found_hours ??
+      RISK_RESOLVED_CACHE_HOURS
+    );
+    const hours = configuredHours && configuredHours > 0
+      ? Number(configuredHours)
+      : RISK_RESOLVED_CACHE_HOURS;
+
+    // v1.4 起 cache_anchor_at_taiwan 是整批 A/B 共用的六小時快取起點。
+    // 若已存在 cache_cycle_id 卻沒有 anchor，代表新一輪尚未產生成功結果，
+    // 不可拿 generated_at 當成新鮮快取。
+    const hasExplicitCycle = Boolean(String(doc?.cache_cycle_id || "").trim());
+    const explicitAnchor = String(doc?.cache_anchor_at_taiwan || "").trim();
+    const legacyCandidates = [
+      doc?.last_completed_at_taiwan,
+      doc?.generated_at_taiwan,
+      doc?.updated_at_taiwan
+    ];
+    const candidates = explicitAnchor
+      ? [explicitAnchor]
+      : (hasExplicitCycle ? [] : legacyCandidates);
+
+    let anchorText = null;
+    let anchorMs = null;
+    for (const value of candidates) {
+      const parsed = Date.parse(String(value || ""));
+      if (!Number.isFinite(parsed)) continue;
+      anchorText = String(value);
+      anchorMs = parsed;
+      break;
+    }
+
+    let expiresText = String(doc?.cache_expires_at_taiwan || "").trim() || null;
+    let expiresMs = expiresText ? Date.parse(expiresText) : NaN;
+    if (!Number.isFinite(expiresMs) && Number.isFinite(anchorMs)) {
+      expiresMs = anchorMs + hours * 3600000;
+      expiresText = new Date(expiresMs).toISOString();
+    }
+
+    const fresh = Number.isFinite(expiresMs) && Number(nowMs) < expiresMs;
+    return {
+      hours,
+      anchorText,
+      anchorMs,
+      expiresText,
+      expiresMs: Number.isFinite(expiresMs) ? expiresMs : null,
+      fresh,
+      expired: Boolean(anchorText) && !fresh,
+      cycleId: String(doc?.cache_cycle_id || "").trim() || null,
+      legacy: !hasExplicitCycle
+    };
+  }
+
+  // 保留舊 API：單筆 checked_at 的六小時判斷仍可供診斷使用；
+  // 正式批次掃描是否重用，改由 R2 external_risk.json 的共用 cache cycle 決定。
+  function isRiskCacheFresh(entry, row, nowMs = Date.now()) {
+    if (!entry || !isRiskResolvedStatus(entry.status)) return false;
+    if (!riskEntryMatchesRow(entry, row)) return false;
     const checkedAt = Date.parse(String(entry.checked_at || ""));
     if (!Number.isFinite(checkedAt)) return false;
     return nowMs - checkedAt <= riskCacheHours(entry) * 3600000;
@@ -1085,12 +1157,13 @@
         retry_after_seconds: null,
         cache_hours: cacheHours,
         cache_until: new Date(checkedAt.getTime() + cacheHours * 3600000).toISOString(),
+        cache_cycle_id: String(options.cacheCycleId || "").trim() || null,
         used_cache: false,
         checked_at: checkedAt.toISOString(),
         model: response.payload?.model || RISK_MODEL,
         requested_model: RISK_MODEL,
         search_mode: "gemini_2_5_flash_google_search",
-        risk_pipeline_version: "gemini-search-safe-v2",
+        risk_pipeline_version: RISK_PIPELINE_VERSION,
         retry_count: attempt - 1,
         attempt_count: attempt,
         request_bytes: response.requestBytes,
@@ -1111,12 +1184,13 @@
         search_completed: false,
         cache_hours: 0,
         cache_until: null,
+        cache_cycle_id: String(options.cacheCycleId || "").trim() || null,
         used_cache: false,
         checked_at: checkedAt.toISOString(),
         model: RISK_MODEL,
         requested_model: RISK_MODEL,
         search_mode: "gemini_2_5_flash_google_search",
-        risk_pipeline_version: "gemini-search-safe-v2",
+        risk_pipeline_version: RISK_PIPELINE_VERSION,
         retry_count: attempt - 1,
         attempt_count: attempt,
         request_bytes: 0
@@ -1147,23 +1221,40 @@
 
     const existingEntries = Array.isArray(options.existingEntries) ? options.existingEntries : [];
     const existingMap = new Map(existingEntries.map(entry => [String(entry?.match_key || ""), entry]));
+    const reuseResolvedCache = options.reuseResolvedCache !== false;
+    const cacheCycleId = String(options.cacheCycleId || "").trim();
+    const allowLegacyCacheCycle = Boolean(options.allowLegacyCacheCycle);
+    const cycleMatches = entry => riskEntryCacheCycleMatches(
+      entry,
+      cacheCycleId,
+      allowLegacyCacheCycle
+    );
+
     const playerMap = new Map();
-    for (const entry of existingEntries) {
-      if (!isRiskResolvedStatus(entry?.status)) continue;
-      if (String(entry?.risk_pipeline_version || "") !== "gemini-search-safe-v2") continue;
-      const checkedAt = Date.parse(String(entry?.checked_at || ""));
-      if (!Number.isFinite(checkedAt) || nowMs - checkedAt > RISK_RESOLVED_CACHE_HOURS * 3600000) continue;
-      playerMap.set(normalizeRiskKeyPart(entry?.hot_player), entry);
+    if (reuseResolvedCache) {
+      for (const entry of existingEntries) {
+        if (!isRiskResolvedStatus(entry?.status)) continue;
+        if (String(entry?.risk_pipeline_version || "") !== RISK_PIPELINE_VERSION) continue;
+        if (!cycleMatches(entry)) continue;
+        playerMap.set(normalizeRiskKeyPart(entry?.hot_player), entry);
+      }
     }
 
     function cachedEntryForRow(row) {
       const key = externalRiskMatchKey(row);
       const oldEntry = existingMap.get(key);
-      if (isRiskCacheFresh(oldEntry, row, nowMs)) {
+      if (
+        reuseResolvedCache &&
+        isRiskResolvedStatus(oldEntry?.status) &&
+        riskEntryMatchesRow(oldEntry, row) &&
+        cycleMatches(oldEntry)
+      ) {
         return { entry: { ...oldEntry, used_cache: true, last_used_at: new Date().toISOString() }, fromCache: true };
       }
-      const playerEntry = playerMap.get(normalizeRiskKeyPart(row?.熱門方));
-      if (playerEntry && isRiskResolvedStatus(playerEntry.status)) {
+      const playerEntry = reuseResolvedCache
+        ? playerMap.get(normalizeRiskKeyPart(row?.熱門方))
+        : null;
+      if (playerEntry && isRiskResolvedStatus(playerEntry.status) && cycleMatches(playerEntry)) {
         return { entry: clonePlayerRisk(playerEntry, row, true), fromCache: true };
       }
       return { entry: null, fromCache: false };
@@ -1449,6 +1540,9 @@
     isRiskResolvedStatus,
     isRiskFailureStatus,
     riskCacheHours,
+    riskEntryMatchesRow,
+    riskEntryCacheCycleMatches,
+    riskDocumentCacheInfo,
     isRiskCacheFresh,
     compactRiskMatch,
     parseRiskResponse,
@@ -1458,6 +1552,8 @@
     ask,
     RISK_SCAN_DELAY_MIN_MS,
     RISK_SCAN_DELAY_MAX_MS,
+    RISK_RESOLVED_CACHE_HOURS,
+    RISK_PIPELINE_VERSION,
     frontendGeminiErrorDiagnostic,
     riskFailure
   });

@@ -752,3 +752,13 @@ X-Full-Analysis-Token: 短期啟動授權
 - Worker 會把未結算比賽登記在 `learning/pending.json`；排程或手動 `/learning/settle` 只在 365Scores 明確完賽時建立 Result / Experience。
 - 同一場多個 Snapshot 全部保留，但 Experience 會使用 `sample_weight=1/該場快照數`，避免重複分析造成多倍權重。
 - 尚未建立正式模型時，主表格 `AI自己的想法` 顯示「學習中」，不偽造勝率。
+
+
+## R2 共用外部風險快取（v1.4）
+
+- `external_risk.json` 是所有瀏覽器共用的最新風險狀態來源；重新整理或另一位使用者載入頁面時，直接顯示 R2 已保存的 `risk_found`、`clear`、`manual_review`、`search_incomplete`。
+- 顯示與重新搜尋分離：即使六小時已過，舊結果仍會留在畫面；只有按下「分析風險」時才判斷是否需要重新呼叫 Gemini。
+- 同一個 R2 快取週期六小時內：`risk_found`、`clear`、`manual_review` 直接沿用，不消耗 Gemini Token；`search_incomplete`、`system_error` 不快取，會重新嘗試。
+- 共用快取超過六小時：所有目前符合條件的 A／B 熱門方重新搜尋。
+- 每輪使用 `cache_cycle_id` 避免新舊六小時週期混用；新一輪若尚未完成，上一輪結果仍可顯示，但不會被當成新週期可重用結果。
+- 每取得一位球員的結果就立即更新 R2，因此重新整理頁面不會把已完成結果清空。
