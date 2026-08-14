@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+
   const WORKER_URL = "https://tennis-json-store.youjianchonglangshou.workers.dev";
   const state = {
     days: "7",
@@ -8,24 +9,26 @@
     sortKey: "date_time_taipei",
     sortDir: "desc",
   };
+
   const $ = (id) => document.getElementById(id);
   const escapeHtml = (value) => String(value ?? "")
-    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 
-  // Worker 的 summary.win_rate / rejection_success_rate 本身就是 0~100。
   function pct(value) {
     const number = Number(value);
     return Number.isFinite(number) ? `${number.toFixed(2)}%` : "—";
   }
 
-  // ratio_analysis / settlement 裡的評級勝率與評級EV是 ratio（0.65 = 65%、0.03 = 3%）。
-  // 舊資料若已是 65 / 3，則保留相容，不再乘第二次。
   function ratioNumber(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) return null;
     return Math.abs(number) > 1.000001 ? number / 100 : number;
   }
+
   function ratioPct(value, digits = 2, signed = false) {
     const ratio = ratioNumber(value);
     if (ratio === null) return "—";
@@ -34,9 +37,26 @@
     return `${prefix}${percentage.toFixed(digits)}%`;
   }
 
-  function gradeSummary(payload, grade) {
-    return payload?.summary?.grades?.[grade] || { wins:0, losses:0, total:0, special:0, win_rate:null, rejection_success_rate:null };
+  function num(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
   }
+
+  function normalizedRating(row) {
+    const text = String(row?.rating || "").trim();
+    return text || "未評級";
+  }
+
+  function gradeOrderValue(value) {
+    return ({ A: 5, B: 4, C: 3, 淘汰: 2, 未評級: 1 })[normalizedRating({ rating: value })] || 0;
+  }
+
+  function gradeSummary(payload, grade) {
+    return payload?.summary?.grades?.[grade] || {
+      wins: 0, losses: 0, total: 0, special: 0, win_rate: null, rejection_success_rate: null,
+    };
+  }
+
   function recordHtml(summary, grade) {
     if (!summary?.total) return '<span class="record empty">尚無正式結果</span>';
     const extra = grade === "淘汰"
@@ -44,14 +64,17 @@
       : `勝率 ${pct(summary.win_rate)}`;
     return `<div class="record"><strong>${summary.wins}勝 ${summary.losses}敗</strong><small>${extra}</small></div>`;
   }
+
   function updateSummary(payload) {
-    const totalWins = ["A","B","C","淘汰","未評級"].reduce((sum,g)=>sum+(payload?.summary?.grades?.[g]?.wins||0),0);
-    const totalLosses = ["A","B","C","淘汰","未評級"].reduce((sum,g)=>sum+(payload?.summary?.grades?.[g]?.losses||0),0);
+    const grades = ["A", "B", "C", "淘汰", "未評級"];
+    const totalWins = grades.reduce((sum, g) => sum + (payload?.summary?.grades?.[g]?.wins || 0), 0);
+    const totalLosses = grades.reduce((sum, g) => sum + (payload?.summary?.grades?.[g]?.losses || 0), 0);
     const total = totalWins + totalLosses;
     $("overall-record").textContent = total ? `${totalWins}勝 ${totalLosses}敗` : "尚無正式結果";
     $("overall-sub").textContent = total
       ? `熱門方總勝率 ${((totalWins / total) * 100).toFixed(2)}%｜特殊 ${payload?.summary?.special || 0} 場`
       : `特殊 ${payload?.summary?.special || 0} 場`;
+
     document.querySelectorAll("[data-grade-card]").forEach(card => {
       const grade = card.dataset.gradeCard;
       const summary = gradeSummary(payload, grade);
@@ -70,6 +93,11 @@
     });
   }
 
+  function resultLabel(row) {
+    if (row?.training_eligible !== true || typeof row?.hot_won !== "boolean") return "特殊";
+    return row.hot_won ? "勝" : "敗";
+  }
+
   function eligibleProbabilityMatches(minRatio) {
     return state.matches.filter(row => {
       const probability = ratioNumber(row?.rating_probability);
@@ -78,6 +106,7 @@
         probability !== null && probability >= minRatio;
     });
   }
+
   function thresholdStats(minRatio) {
     const rows = eligibleProbabilityMatches(minRatio);
     const wins = rows.filter(row => row.hot_won === true).length;
@@ -90,6 +119,7 @@
       winRate: rows.length ? (wins / rows.length) * 100 : null,
     };
   }
+
   function renderThresholds() {
     const wrap = $("probability-threshold-cards");
     if (!wrap) return;
@@ -107,12 +137,13 @@
     const focus = thresholdStats(0.65);
     const gradeOrder = ["A", "B", "C", "淘汰", "未評級"];
     const gradeParts = gradeOrder.map(grade => {
-      const rows = focus.rows.filter(row => (row.rating || "未評級") === grade);
+      const rows = focus.rows.filter(row => normalizedRating(row) === grade);
       if (!rows.length) return null;
       const wins = rows.filter(row => row.hot_won === true).length;
       const rate = (wins / rows.length) * 100;
       return `<span><b>${escapeHtml(grade)}</b> ${wins}勝${rows.length - wins}敗／${rate.toFixed(1)}%</span>`;
     }).filter(Boolean);
+
     $("threshold-65-breakdown").innerHTML = focus.total
       ? `<b>≥65% 不分評級：</b>${focus.wins}勝 ${focus.losses}敗，實際勝率 <em>${focus.winRate.toFixed(2)}%</em>。${gradeParts.length ? `<span class="threshold-grade-breakdown">${gradeParts.join("｜")}</span>` : ""}`
       : `<b>≥65% 不分評級：</b>目前尚無可計算的正式結算樣本。`;
@@ -135,40 +166,107 @@
     }
     body.innerHTML = days.map(day => {
       const s = day.summary || {};
-      const wins = ["A","B","C","淘汰","未評級"].reduce((sum,g)=>sum+(s?.grades?.[g]?.wins||0),0);
-      const losses = ["A","B","C","淘汰","未評級"].reduce((sum,g)=>sum+(s?.grades?.[g]?.losses||0),0);
+      const grades = ["A", "B", "C", "淘汰", "未評級"];
+      const wins = grades.reduce((sum, g) => sum + (s?.grades?.[g]?.wins || 0), 0);
+      const losses = grades.reduce((sum, g) => sum + (s?.grades?.[g]?.losses || 0), 0);
       const total = wins + losses;
-      const allHtml = total ? `<div class="record"><strong>${wins}勝 ${losses}敗</strong><small>${pct((wins/total)*100)}</small></div>` : '<span class="record empty">—</span>';
+      const allHtml = total
+        ? `<div class="record"><strong>${wins}勝 ${losses}敗</strong><small>${pct((wins / total) * 100)}</small></div>`
+        : '<span class="record empty">—</span>';
       return `<tr>
         <td><strong>${escapeHtml(day.date)}</strong></td>
         <td>${allHtml}</td>
-        <td>${recordHtml(s?.grades?.A,"A")}</td>
-        <td>${recordHtml(s?.grades?.B,"B")}</td>
-        <td>${recordHtml(s?.grades?.C,"C")}</td>
-        <td>${recordHtml(s?.grades?.淘汰,"淘汰")}</td>
+        <td>${recordHtml(s?.grades?.A, "A")}</td>
+        <td>${recordHtml(s?.grades?.B, "B")}</td>
+        <td>${recordHtml(s?.grades?.C, "C")}</td>
+        <td>${recordHtml(s?.grades?.淘汰, "淘汰")}</td>
         <td>${Number(s?.special || 0)}</td>
       </tr>`;
     }).join("");
   }
-  function resultLabel(row) {
-    if (row?.training_eligible !== true || typeof row?.hot_won !== "boolean") return "特殊";
-    return row.hot_won ? "勝" : "敗";
+
+  function compactLeague(row) {
+    const level = String(row?.league_compact || row?.league || "").trim();
+    const round = String(row?.round_compact || "").trim();
+    return { level, round, text: [level, round].filter(Boolean).join(" ｜ ") || "—" };
   }
+
+  function rankPill(rank, side) {
+    const n = num(rank);
+    if (n === null || n <= 0) return '<span class="rank-pill missing">#—</span>';
+    const tone = side === "better" ? "better" : "";
+    return `<span class="rank-pill ${tone}" title="世界排名 #${n}">#${n}</span>`;
+  }
+
+  function playerCell(name, rank, isHot = false, isBetter = false) {
+    const safeName = escapeHtml(name || "—");
+    const hotClass = isHot ? " hot-player" : "";
+    return `<div class="player-cell${hotClass}"><span class="player-name">${safeName}</span>${rankPill(rank, isBetter ? "better" : "normal")}</div>`;
+  }
+
+  function hotSideIsHome(row) {
+    return String(row?.hot_side || "") === "主場";
+  }
+
+  function rankGapText(value) {
+    const gap = num(value);
+    if (gap === null) return '<span class="rank-gap-text missing">—</span>';
+    if (gap > 0) return `<span class="rank-gap-text good">熱門前 ${Math.abs(gap)}</span>`;
+    if (gap < 0) return `<span class="rank-gap-text bad">熱門後 ${Math.abs(gap)}</span>`;
+    return '<span class="rank-gap-text neutral">同排名</span>';
+  }
+
+  function dSignalClass(row) {
+    if (row?.d_signal_class) return String(row.d_signal_class);
+    const value = num(row?.d_value);
+    if (value === null) return "neutral";
+    if (value > 0.4) return "hot-strong";
+    if (value > 0) return "hot";
+    if (value < -0.4) return "cold-strong";
+    if (value < 0) return "cold";
+    return "neutral";
+  }
+
+  function dSignalLabel(row) {
+    if (row?.d_signal) return String(row.d_signal);
+    const signal = dSignalClass(row);
+    return ({
+      "hot-strong": "D++",
+      hot: "D+",
+      cold: "D-",
+      "cold-strong": "D--",
+      neutral: "D0",
+    })[signal] || "D?";
+  }
+
+  function dPill(row) {
+    const label = dSignalLabel(row);
+    const signal = dSignalClass(row);
+    const value = num(row?.d_value);
+    const title = value === null ? "D 值不足" : `D數值 ${value.toFixed(3)}`;
+    return `<span class="d-pill ${escapeHtml(signal)}" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+  }
+
   function filteredMatches() {
     const grade = $("grade-filter").value;
     const result = $("result-filter").value;
     const probabilityMinRaw = $("probability-filter").value;
     const probabilityMin = probabilityMinRaw === "全部" ? null : Number(probabilityMinRaw);
     const q = $("search-input").value.trim().toLowerCase();
+
     return state.matches.filter(row => {
-      if (grade !== "全部" && row.rating !== grade) return false;
+      if (grade !== "全部" && normalizedRating(row) !== grade) return false;
       if (result !== "全部" && resultLabel(row) !== result) return false;
       if (probabilityMin !== null) {
         const probability = ratioNumber(row.rating_probability);
         if (probability === null || probability < probabilityMin) return false;
       }
       if (q) {
-        const hay = [row.home,row.away,row.hot_player,row.league,row.date_time_taipei].join(" ").toLowerCase();
+        const leagueInfo = compactLeague(row).text;
+        const hay = [
+          row.home, row.away, row.hot_player, row.league, leagueInfo,
+          row.date_time_taipei, normalizedRating(row), dSignalLabel(row),
+        ].join(" ").toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -177,28 +275,37 @@
 
   function sortValue(row, key) {
     if (key === "date_time_taipei") return Date.parse(String(row.date_time_taipei || row.date || row.settled_at || "")) || 0;
-    if (key === "rating") return ({ A:5, B:4, C:3, 淘汰:2, 未評級:1 })[row.rating] || 0;
-    if (key === "match") return `${row.home || ""} ${row.away || ""}`.toLowerCase();
-    if (key === "hot_player") return String(row.hot_player || "").toLowerCase();
+    if (key === "league_compact") return compactLeague(row).text.toLowerCase();
+    if (key === "home") return String(row.home || "").toLowerCase();
+    if (key === "away") return String(row.away || "").toLowerCase();
+    if (key === "hot_odds") return num(row.hot_odds) ?? -Infinity;
     if (key === "rating_probability") return ratioNumber(row.rating_probability) ?? -Infinity;
+    if (key === "rank_gap_abs") return num(row.rank_gap_abs) ?? -Infinity;
     if (key === "rating_ev") return ratioNumber(row.rating_ev) ?? -Infinity;
-    if (key === "score") {
-      const home = Number(row.home_score);
-      const away = Number(row.away_score);
-      return Number.isFinite(home) && Number.isFinite(away) ? home * 10 + away : -Infinity;
+    if (key === "rating") {
+      const gradeScore = gradeOrderValue(normalizedRating(row));
+      const dScore = ({ "D++": 5, "D+": 4, "D0": 3, "D-": 2, "D--": 1 })[dSignalLabel(row)] || 0;
+      return gradeScore * 10 + dScore;
     }
-    if (key === "result") return ({ 勝:3, 敗:2, 特殊:1 })[resultLabel(row)] || 0;
+    if (key === "score") {
+      const home = num(row.home_score);
+      const away = num(row.away_score);
+      return home !== null && away !== null ? home * 10 + away : -Infinity;
+    }
+    if (key === "result") return ({ 勝: 3, 敗: 2, 特殊: 1 })[resultLabel(row)] || 0;
     return String(row?.[key] ?? "").toLowerCase();
   }
+
   function sortedMatches(rows) {
     const direction = state.sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
       const av = sortValue(a, state.sortKey);
       const bv = sortValue(b, state.sortKey);
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * direction;
-      return String(av).localeCompare(String(bv), "zh-Hant", { numeric:true, sensitivity:"base" }) * direction;
+      return String(av).localeCompare(String(bv), "zh-Hant", { numeric: true, sensitivity: "base" }) * direction;
     });
   }
+
   function updateSortHeaders() {
     document.querySelectorAll(".detail-table th[data-sort-key]").forEach(th => {
       const active = th.dataset.sortKey === state.sortKey;
@@ -208,49 +315,83 @@
       if (indicator) indicator.textContent = active ? (state.sortDir === "asc" ? "▲" : "▼") : "↕";
     });
   }
+
   function renderDetails() {
     const body = $("detail-body");
     const filtered = filteredMatches();
     const rows = sortedMatches(filtered);
     updateSortHeaders();
+
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="8" class="loading-cell">目前篩選條件沒有結算場次。</td></tr>';
+      body.innerHTML = '<tr><td colspan="11" class="loading-cell">目前篩選條件沒有結算場次。</td></tr>';
       $("detail-footer").textContent = "顯示 0 場";
       return;
     }
+
     body.innerHTML = rows.map(row => {
       const label = resultLabel(row);
       const resultClass = label === "勝" ? "win" : label === "敗" ? "loss" : "special";
-      const score = Number.isFinite(Number(row.home_score)) && Number.isFinite(Number(row.away_score))
-        ? `${Number(row.home_score)} : ${Number(row.away_score)}` : "—";
-      const match = `${escapeHtml(row.home || "—")} <span class="muted">vs</span> ${escapeHtml(row.away || "—")}`;
-      const reason = label === "特殊" && row.reason ? `<span class="special-reason">${escapeHtml(row.reason)}</span>` : "";
+      const score = num(row.home_score) !== null && num(row.away_score) !== null
+        ? `${Number(row.home_score)} : ${Number(row.away_score)}`
+        : "—";
       const probability = ratioNumber(row.rating_probability);
       const probabilityClass = probability !== null && probability >= 0.65 ? " threshold-hit" : "";
+      const reason = label === "特殊" && row.reason ? `<span class="special-reason">${escapeHtml(row.reason)}</span>` : "";
+      const leagueInfo = compactLeague(row);
+      const homeIsHot = hotSideIsHome(row);
+      const awayIsHot = String(row?.hot_side || "") === "客場";
+      const homeRank = num(row.home_rank);
+      const awayRank = num(row.away_rank);
+      const homeBetter = homeRank !== null && awayRank !== null && homeRank < awayRank;
+      const awayBetter = homeRank !== null && awayRank !== null && awayRank < homeRank;
+      const itemHtml = row?.source_item !== null && row?.source_item !== undefined && String(row.source_item).trim()
+        ? `<span class="item-chip">#${escapeHtml(row.source_item)}</span>`
+        : "";
+
       return `<tr>
         <td>${escapeHtml(row.date_time_taipei || row.date || "—")}</td>
-        <td><span class="grade-pill ${escapeHtml(row.rating || "未評級")}">${escapeHtml(row.rating || "未評級")}</span></td>
-        <td>${match}</td>
-        <td class="hot-player">${escapeHtml(row.hot_player || "—")}</td>
+        <td>
+          <div class="match-info-cell">
+            ${itemHtml}
+            <span class="meta-badge level">${escapeHtml(leagueInfo.level || "—")}</span>
+            ${leagueInfo.round ? `<span class="meta-badge round">${escapeHtml(leagueInfo.round)}</span>` : ""}
+          </div>
+        </td>
+        <td>${playerCell(row.home, row.home_rank, homeIsHot, homeBetter)}</td>
+        <td>${playerCell(row.away, row.away_rank, awayIsHot, awayBetter)}</td>
+        <td class="metric">${num(row.hot_odds) !== null ? Number(row.hot_odds).toFixed(3) : "—"}</td>
         <td class="metric${probabilityClass}">${ratioPct(row.rating_probability)}</td>
+        <td>${rankGapText(row.rank_gap)}</td>
         <td class="metric">${ratioPct(row.rating_ev, 2, true)}</td>
+        <td>
+          <div class="rating-d-wrap">
+            <span class="grade-pill ${escapeHtml(normalizedRating(row))}">${escapeHtml(normalizedRating(row))}</span>
+            ${dPill(row)}
+          </div>
+        </td>
         <td class="score">${score}</td>
         <td><span class="result-pill ${resultClass}">${label === "特殊" ? "特殊" : `熱門方${label}`}</span>${reason}</td>
       </tr>`;
     }).join("");
+
     const probabilityLabel = $("probability-filter").value === "全部"
       ? "全部評級勝率"
       : `評級勝率 ≥ ${(Number($("probability-filter").value) * 100).toFixed(0)}%`;
     $("detail-footer").textContent = `${probabilityLabel}｜顯示 ${rows.length}／${state.matches.length} 場｜排序：${state.sortDir === "asc" ? "小→大" : "大→小"}`;
   }
+
   async function loadPerformance(days = state.days) {
     state.days = days;
-    $("status-text").textContent = days === "all" ? "正在讀取全部 R2 正式結算資料……" : `正在讀取近 ${days} 日 R2 正式結算資料……`;
+    $("status-text").textContent = days === "all"
+      ? "正在讀取全部 R2 正式結算資料……"
+      : `正在讀取近 ${days} 日 R2 正式結算資料……`;
     $("refresh-button").disabled = true;
+
     try {
-      const response = await fetch(`${WORKER_URL}/performance/results?days=${encodeURIComponent(days)}&v=${Date.now()}`, { cache:"no-store" });
+      const response = await fetch(`${WORKER_URL}/performance/results?days=${encodeURIComponent(days)}&v=${Date.now()}`, { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `HTTP ${response.status}`);
+
       state.payload = payload;
       state.matches = Array.isArray(payload.matches) ? payload.matches : [];
       updateSummary(payload);
@@ -262,31 +403,40 @@
     } catch (error) {
       $("status-text").textContent = `戰績讀取失敗：${error?.message || error}`;
       $("daily-body").innerHTML = `<tr><td colspan="7" class="loading-cell">${escapeHtml(error?.message || String(error))}</td></tr>`;
-      $("detail-body").innerHTML = '<tr><td colspan="8" class="loading-cell">請確認 Cloudflare Worker 已部署新版 /performance/results。</td></tr>';
+      $("detail-body").innerHTML = '<tr><td colspan="11" class="loading-cell">請確認 Cloudflare Worker 已部署含排名／D欄位的新版 /performance/results。</td></tr>';
       $("probability-threshold-cards").innerHTML = '<div class="loading-cell">門檻統計讀取失敗。</div>';
     } finally {
       $("refresh-button").disabled = false;
     }
   }
+
   document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll(".range-tab").forEach(button => button.addEventListener("click", () => {
       document.querySelectorAll(".range-tab").forEach(item => item.classList.toggle("active", item === button));
       loadPerformance(button.dataset.days || "7");
     }));
+
     $("refresh-button").addEventListener("click", () => loadPerformance(state.days));
-    ["grade-filter","result-filter","probability-filter","search-input"].forEach(id => $(id).addEventListener(id === "search-input" ? "input" : "change", renderDetails));
+    ["grade-filter", "result-filter", "probability-filter", "search-input"].forEach(id => {
+      $(id).addEventListener(id === "search-input" ? "input" : "change", renderDetails);
+    });
+
     document.querySelectorAll(".detail-table th[data-sort-key]").forEach(th => {
       th.addEventListener("click", () => {
         const key = th.dataset.sortKey;
         if (!key) return;
-        if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
-        else {
+        if (state.sortKey === key) {
+          state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+        } else {
           state.sortKey = key;
-          state.sortDir = ["rating_probability", "rating_ev", "rating", "date_time_taipei", "score", "result"].includes(key) ? "desc" : "asc";
+          state.sortDir = ["rating_probability", "rating_ev", "rating", "date_time_taipei", "score", "result", "hot_odds", "rank_gap_abs"].includes(key)
+            ? "desc"
+            : "asc";
         }
         renderDetails();
       });
     });
+
     loadPerformance("7");
   });
 })();

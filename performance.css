@@ -65,3 +65,37 @@ h1{margin:4px 0 5px;font-size:27px;line-height:1.15}p{margin:0;color:var(--muted
 .detail-table th.sort-active .sort-indicator{color:#f2cc62}
 .metric.threshold-hit{color:#ffe183;font-weight:1000;text-shadow:0 0 12px #f0c13b2d}
 @media(max-width:820px){.threshold-cards{grid-template-columns:1fr}.threshold-card{min-height:74px}}
+
+/* v3｜恢復主客場欄位、排名與 D 訊號 */
+.detail-table-v3 td{vertical-align:middle}
+.match-info-cell{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.item-chip,.meta-badge{display:inline-flex;align-items:center;justify-content:center;height:21px;padding:0 8px;border-radius:999px;border:1px solid #314c63;background:#0d1e2f;color:#a8bfd1;font-size:10px;font-weight:900;letter-spacing:.02em}
+.item-chip{color:#d7c58d;border-color:#5a5136;background:#272311}
+.meta-badge.level{color:#d7e9f4}
+.meta-badge.round{color:#b9d8ee}
+.player-cell{display:flex;align-items:center;gap:8px;min-width:0}
+.player-name{font-weight:800;color:#dceef8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-cell.hot-player .player-name{color:#74e6ff;text-shadow:0 0 10px #72e6ff22}
+.rank-pill{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:21px;padding:0 8px;border-radius:999px;border:1px solid #41586b;background:#132335;color:#eef8ff;font-size:10px;font-weight:900;flex:0 0 auto}
+.rank-pill.better{box-shadow:0 0 14px #89fff624}
+.rank-pill.missing{color:#7c90a2;background:#131d28;border-color:#33414f}
+.rank-gap-text{font-weight:900;font-size:12px}
+.rank-gap-text.good{color:#68e2a5}
+.rank-gap-text.bad{color:#ff8e97}
+.rank-gap-text.neutral{color:#b8c8d5}
+.rank-gap-text.missing{color:#71879a}
+.rating-d-wrap{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.d-pill{display:inline-flex;min-width:44px;height:22px;align-items:center;justify-content:center;border:1px solid #41586d;border-radius:999px;font-size:11px;font-weight:1000;padding:0 9px}
+.d-pill.hot-strong{color:#66f1af;border-color:#2b8d60;background:#0f3324}
+.d-pill.hot{color:#9de8c2;border-color:#337b59;background:#112c22}
+.d-pill.cold{color:#ffb4bd;border-color:#7c4450;background:#321b20}
+.d-pill.cold-strong{color:#ff8795;border-color:#914251;background:#3b171f}
+.d-pill.neutral{color:#d7c58d;border-color:#776b3b;background:#2c2715}
+.detail-table-v3 .metric{font-weight:800}
+.detail-table-v3 .score{font-weight:800}
+.detail-table-v3 td:nth-child(2){min-width:150px}
+.detail-table-v3 td:nth-child(3),.detail-table-v3 td:nth-child(4){min-width:210px}
+@media(max-width:980px){
+  .player-cell{min-width:180px}
+  .detail-table-v3 td:nth-child(3),.detail-table-v3 td:nth-child(4){min-width:180px}
+}
