@@ -99,3 +99,71 @@ h1{margin:4px 0 5px;font-size:27px;line-height:1.15}p{margin:0;color:var(--muted
   .player-cell{min-width:180px}
   .detail-table-v3 td:nth-child(3),.detail-table-v3 td:nth-child(4){min-width:180px}
 }
+
+/* v4｜移除項次／熱門方賠率／排名差；排名卡牌色回歸主頁；評級+D固定同行 */
+.rank-pill{
+  position:relative;
+  min-width:37px;
+  height:20px;
+  padding:0 6px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:900;
+  margin-left:0;
+}
+.rank-pill.rarity-ssr{
+  color:#ffe66d;
+  border-color:#d6a900;
+  background:#332708;
+  box-shadow:inset 0 1px 0 #fff3a444,0 0 7px #d6a90055;
+  text-shadow:0 0 5px #ffd84d88;
+}
+.rank-pill.rarity-sr{
+  color:#d8b4fe;
+  border-color:#8b5cf6;
+  background:#28193d;
+  box-shadow:inset 0 1px 0 #efd9ff44,0 0 7px #8b5cf666;
+  text-shadow:0 0 5px #c79aff88;
+}
+.rank-pill.rarity-r{
+  color:#dcf7ff;
+  border-color:#2f9cff;
+  background:linear-gradient(180deg,#105b91 0%,#082f66 52%,#071f49 100%);
+  box-shadow:inset 0 1px 0 #b8efff66,inset 0 -1px 0 #001a3d,0 0 7px #238cff78;
+  text-shadow:0 0 5px #86ddff;
+}
+.rank-pill.rarity-n{
+  color:#d8ffec;
+  border-color:#32d990;
+  background:linear-gradient(180deg,#176b4c 0%,#0b4434 52%,#082d25 100%);
+  box-shadow:inset 0 1px 0 #c7ffe366,inset 0 -1px 0 #04241b,0 0 7px #2bd98a70;
+  text-shadow:0 0 5px #84ffc3;
+}
+.rank-pill.rarity-c,.rank-pill.missing{
+  color:#eef2f7;
+  border-color:#657586;
+  background:linear-gradient(180deg,#2c3743 0%,#1c2631 55%,#141c25 100%);
+  box-shadow:inset 0 1px 0 #ffffff2d,inset 0 -1px 0 #0a1017;
+  text-shadow:none;
+}
+.rank-pill.better-ranked::after{
+  content:"";
+  position:absolute;
+  right:-3px;
+  top:-3px;
+  width:6px;
+  height:6px;
+  border:1px solid #baf4ff;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 0 4px 2px #fff9,0 0 9px 3px #55dfffaa;
+}
+.rating-d-wrap{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:nowrap;
+  white-space:nowrap;
+  min-width:100px;
+}
+.detail-table-v3 td:nth-child(7){min-width:116px}

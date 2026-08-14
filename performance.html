@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=1" />
   <title>TennisRatio｜近期戰績</title>
-  <link rel="stylesheet" href="./performance.css?v=performance-center-v3" />
+  <link rel="stylesheet" href="./performance.css?v=performance-center-v4" />
 </head>
 <body>
   <main class="performance-page">
@@ -104,7 +104,7 @@
       <div class="panel-head detail-head">
         <div>
           <h2>逐場結算</h2>
-          <p>恢復主場／客場欄位、排名與 D 訊號；熱門方直接用球員顏色標示，方便交叉觀察 ≥65%、排名差與 D++。</p>
+          <p>恢復主場／客場欄位、排名與 D 訊號；熱門方直接用球員顏色標示，方便交叉觀察 ≥65%、雙方排名與 D++。</p>
         </div>
         <div class="detail-filters">
           <select id="grade-filter" aria-label="評級篩選">
@@ -138,9 +138,7 @@
               <th data-sort-key="league_compact" role="button" tabindex="0">比賽資訊 <span class="sort-indicator">↕</span></th>
               <th data-sort-key="home" role="button" tabindex="0">主場 <span class="sort-indicator">↕</span></th>
               <th data-sort-key="away" role="button" tabindex="0">客場 <span class="sort-indicator">↕</span></th>
-              <th data-sort-key="hot_odds" role="button" tabindex="0">熱門方賠率 <span class="sort-indicator">↕</span></th>
               <th data-sort-key="rating_probability" role="button" tabindex="0">評級勝率 <span class="sort-indicator">↕</span></th>
-              <th data-sort-key="rank_gap_abs" role="button" tabindex="0">排名差 <span class="sort-indicator">↕</span></th>
               <th data-sort-key="rating_ev" role="button" tabindex="0">評級EV <span class="sort-indicator">↕</span></th>
               <th data-sort-key="rating" role="button" tabindex="0">評級 <span class="sort-indicator">↕</span></th>
               <th data-sort-key="score" role="button" tabindex="0">實際比分 <span class="sort-indicator">↕</span></th>
@@ -148,13 +146,13 @@
             </tr>
           </thead>
           <tbody id="detail-body">
-            <tr><td colspan="11" class="loading-cell">讀取中……</td></tr>
+            <tr><td colspan="9" class="loading-cell">讀取中……</td></tr>
           </tbody>
         </table>
       </div>
       <div class="detail-footer" id="detail-footer">—</div>
     </section>
   </main>
-  <script src="./performance.js?v=performance-center-v3" defer></script>
+  <script src="./performance.js?v=performance-center-v4" defer></script>
 </body>
 </html>

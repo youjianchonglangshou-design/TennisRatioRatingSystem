@@ -194,8 +194,14 @@
   function rankPill(rank, side) {
     const n = num(rank);
     if (n === null || n <= 0) return '<span class="rank-pill missing">#—</span>';
-    const tone = side === "better" ? "better" : "";
-    return `<span class="rank-pill ${tone}" title="世界排名 #${n}">#${n}</span>`;
+    let tier = "rarity-c";
+    let rarity = "C";
+    if (n <= 10) { tier = "rarity-ssr"; rarity = "SSR"; }
+    else if (n <= 50) { tier = "rarity-sr"; rarity = "SR"; }
+    else if (n <= 250) { tier = "rarity-r"; rarity = "R"; }
+    else if (n <= 500) { tier = "rarity-n"; rarity = "N"; }
+    const better = side === "better" ? " better-ranked" : "";
+    return `<span class="rank-pill ${tier}${better}" title="${rarity}｜世界排名 #${n}">#${n}</span>`;
   }
 
   function playerCell(name, rank, isHot = false, isBetter = false) {
@@ -323,7 +329,7 @@
     updateSortHeaders();
 
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="11" class="loading-cell">目前篩選條件沒有結算場次。</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" class="loading-cell">目前篩選條件沒有結算場次。</td></tr>';
       $("detail-footer").textContent = "顯示 0 場";
       return;
     }
@@ -344,24 +350,17 @@
       const awayRank = num(row.away_rank);
       const homeBetter = homeRank !== null && awayRank !== null && homeRank < awayRank;
       const awayBetter = homeRank !== null && awayRank !== null && awayRank < homeRank;
-      const itemHtml = row?.source_item !== null && row?.source_item !== undefined && String(row.source_item).trim()
-        ? `<span class="item-chip">#${escapeHtml(row.source_item)}</span>`
-        : "";
-
       return `<tr>
         <td>${escapeHtml(row.date_time_taipei || row.date || "—")}</td>
         <td>
           <div class="match-info-cell">
-            ${itemHtml}
             <span class="meta-badge level">${escapeHtml(leagueInfo.level || "—")}</span>
             ${leagueInfo.round ? `<span class="meta-badge round">${escapeHtml(leagueInfo.round)}</span>` : ""}
           </div>
         </td>
         <td>${playerCell(row.home, row.home_rank, homeIsHot, homeBetter)}</td>
         <td>${playerCell(row.away, row.away_rank, awayIsHot, awayBetter)}</td>
-        <td class="metric">${num(row.hot_odds) !== null ? Number(row.hot_odds).toFixed(3) : "—"}</td>
         <td class="metric${probabilityClass}">${ratioPct(row.rating_probability)}</td>
-        <td>${rankGapText(row.rank_gap)}</td>
         <td class="metric">${ratioPct(row.rating_ev, 2, true)}</td>
         <td>
           <div class="rating-d-wrap">
@@ -403,7 +402,7 @@
     } catch (error) {
       $("status-text").textContent = `戰績讀取失敗：${error?.message || error}`;
       $("daily-body").innerHTML = `<tr><td colspan="7" class="loading-cell">${escapeHtml(error?.message || String(error))}</td></tr>`;
-      $("detail-body").innerHTML = '<tr><td colspan="11" class="loading-cell">請確認 Cloudflare Worker 已部署含排名／D欄位的新版 /performance/results。</td></tr>';
+      $("detail-body").innerHTML = '<tr><td colspan="9" class="loading-cell">請確認 Cloudflare Worker 已部署含排名／D欄位的新版 /performance/results。</td></tr>';
       $("probability-threshold-cards").innerHTML = '<div class="loading-cell">門檻統計讀取失敗。</div>';
     } finally {
       $("refresh-button").disabled = false;
