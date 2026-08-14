@@ -167,3 +167,41 @@ h1{margin:4px 0 5px;font-size:27px;line-height:1.15}p{margin:0;color:var(--muted
   min-width:100px;
 }
 .detail-table-v3 td:nth-child(7){min-width:116px}
+
+/* v5｜主頁式主客場：球員靠左、排名貼欄位右側；主客場中央暗垂直分隔線 */
+.detail-table-v3 th:nth-child(3),
+.detail-table-v3 td:nth-child(3){
+  border-right:1px solid rgba(72,101,125,.36);
+}
+.detail-table-v3 th:nth-child(3){
+  box-shadow:1px 0 0 rgba(4,12,20,.34);
+}
+.detail-table-v3 td:nth-child(3){
+  box-shadow:inset -1px 0 0 rgba(3,11,18,.24);
+}
+.detail-table-v3 td:nth-child(3),
+.detail-table-v3 td:nth-child(4){
+  min-width:230px;
+}
+.detail-table-v3 .player-cell{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  min-width:0;
+}
+.detail-table-v3 .player-name{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.detail-table-v3 .rank-pill{
+  margin-left:auto;
+  justify-self:end;
+}
+@media(max-width:980px){
+  .detail-table-v3 td:nth-child(3),
+  .detail-table-v3 td:nth-child(4){min-width:205px}
+}
