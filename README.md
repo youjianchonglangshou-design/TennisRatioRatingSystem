@@ -762,3 +762,16 @@ X-Full-Analysis-Token: 短期啟動授權
 - 共用快取超過六小時：所有目前符合條件的 A／B 熱門方重新搜尋。
 - 每輪使用 `cache_cycle_id` 避免新舊六小時週期混用；新一輪若尚未完成，上一輪結果仍可顯示，但不會被當成新週期可重用結果。
 - 每取得一位球員的結果就立即更新 R2，因此重新整理頁面不會把已完成結果清空。
+
+
+## 近期戰績中心（Performance Center v1）
+
+主頁新增「↗ 近期戰績」，以新頁籤開啟 `performance.html`，避免主分析頁繼續堆疊資訊。
+
+資料來源：Cloudflare R2 `settlement/results/YYYY-MM-DD.json`。Worker 的 `/performance/results?days=7` 會將正式結算結果與 `learning/experience/YYYY-MM-DD.json` 最新賽前快照結合，補回評級、評級勝率與評級 EV。
+
+統計規則：
+- A／B／C／淘汰的勝敗，一律表示「熱門方實際勝／負」。
+- 淘汰另顯示「淘汰成功率」，定義為熱門方落敗率。
+- `training_eligible=false` 的退賽、Walkover、Interrupted 等特殊場次獨立列出，不納入勝率。
+- Worker 會將每天整理後的輕量報表快取至 `reporting/daily/YYYY-MM-DD.json`；來源更新時自動重建。

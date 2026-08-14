@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=1" />
+  <title>TennisRatio｜近期戰績</title>
+  <link rel="stylesheet" href="./performance.css?v=performance-center-v1" />
+</head>
+<body>
+  <main class="performance-page">
+    <header class="performance-head">
+      <div>
+        <div class="performance-kicker">🎾 TennisRatio 2.0</div>
+        <h1>近期戰績中心</h1>
+        <p>以 R2 正式結算結果為準；A／B／C／淘汰皆統計「熱門方」實際勝負。退賽、Walkover、Interrupted 等特殊場次獨立列出，不計入勝率。</p>
+      </div>
+      <div class="head-actions">
+        <a class="back-link" href="./index.html">← 返回分析系統</a>
+        <button class="refresh-button" id="refresh-button" type="button">↻ 更新戰績</button>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="戰績範圍">
+      <div class="range-tabs" role="group" aria-label="時間範圍">
+        <button class="range-tab active" data-days="7" type="button">近 7 日</button>
+        <button class="range-tab" data-days="14" type="button">近 14 日</button>
+        <button class="range-tab" data-days="30" type="button">近 30 日</button>
+        <button class="range-tab" data-days="90" type="button">近 90 日</button>
+      </div>
+      <div class="status-text" id="status-text">正在讀取 R2 正式結算資料……</div>
+    </section>
+
+    <section class="summary-grid" id="summary-grid" aria-label="評級總戰績">
+      <article class="summary-card overall">
+        <div class="summary-label">全部正式結算</div>
+        <div class="summary-main" id="overall-record">—</div>
+        <div class="summary-sub" id="overall-sub">—</div>
+      </article>
+      <article class="summary-card grade-a" data-grade-card="A">
+        <div class="summary-label">A 評級</div>
+        <div class="summary-main">—</div>
+        <div class="summary-sub">—</div>
+      </article>
+      <article class="summary-card grade-b" data-grade-card="B">
+        <div class="summary-label">B 評級</div>
+        <div class="summary-main">—</div>
+        <div class="summary-sub">—</div>
+      </article>
+      <article class="summary-card grade-c" data-grade-card="C">
+        <div class="summary-label">C 評級</div>
+        <div class="summary-main">—</div>
+        <div class="summary-sub">—</div>
+      </article>
+      <article class="summary-card grade-x" data-grade-card="淘汰">
+        <div class="summary-label">淘汰</div>
+        <div class="summary-main">—</div>
+        <div class="summary-sub">—</div>
+      </article>
+    </section>
+
+    <section class="panel daily-panel">
+      <div class="panel-head">
+        <div>
+          <h2>每日評級戰績</h2>
+          <p>勝／敗皆以該場「熱門方」為基準；淘汰欄另顯示淘汰成功率＝熱門方落敗率。</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="daily-table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>全部</th>
+              <th class="grade-a-text">A</th>
+              <th class="grade-b-text">B</th>
+              <th class="grade-c-text">C</th>
+              <th class="grade-x-text">淘汰</th>
+              <th>特殊場次</th>
+            </tr>
+          </thead>
+          <tbody id="daily-body">
+            <tr><td colspan="7" class="loading-cell">讀取中……</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel detail-panel">
+      <div class="panel-head detail-head">
+        <div>
+          <h2>逐場結算</h2>
+          <p>點評級或結果可縮小範圍；特殊狀態不列入勝率。</p>
+        </div>
+        <div class="detail-filters">
+          <select id="grade-filter" aria-label="評級篩選">
+            <option value="全部">全部評級</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="淘汰">淘汰</option>
+            <option value="未評級">未評級</option>
+          </select>
+          <select id="result-filter" aria-label="結果篩選">
+            <option value="全部">全部結果</option>
+            <option value="勝">熱門方勝</option>
+            <option value="敗">熱門方敗</option>
+            <option value="特殊">特殊場次</option>
+          </select>
+          <input id="search-input" type="search" placeholder="搜尋球員／賽事" aria-label="搜尋球員或賽事" />
+        </div>
+      </div>
+      <div class="table-wrap detail-table-wrap">
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th>日期時間</th>
+              <th>評級</th>
+              <th>比賽</th>
+              <th>熱門方</th>
+              <th>評級勝率</th>
+              <th>評級EV</th>
+              <th>實際比分</th>
+              <th>實際結果</th>
+            </tr>
+          </thead>
+          <tbody id="detail-body">
+            <tr><td colspan="8" class="loading-cell">讀取中……</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="detail-footer" id="detail-footer">—</div>
+    </section>
+  </main>
+  <script src="./performance.js?v=performance-center-v1" defer></script>
+</body>
+</html>
