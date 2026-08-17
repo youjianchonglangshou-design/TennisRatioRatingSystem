@@ -266,12 +266,42 @@
     return output;
   }
 
+  function updateRenderedLearningCells(analysis) {
+    if (typeof document === "undefined") return 0;
+    const renderer = globalThis?.TennisRatioRenderer;
+    if (!renderer || typeof renderer.learningThought !== "function") return 0;
+    const rows = Array.isArray(analysis?.matches) ? analysis.matches : [];
+    const tableRows = Array.from(document.querySelectorAll("table.main tbody tr"));
+    const byItem = new Map();
+    for (const tr of tableRows) {
+      const firstCell = tr.cells?.[0];
+      if (!firstCell) continue;
+      const key = String(firstCell.textContent || "").trim();
+      if (key) byItem.set(key, tr);
+    }
+
+    let updated = 0;
+    for (const row of rows) {
+      const key = String(row?.["項次"] ?? "").trim();
+      const tr = byItem.get(key);
+      const cell = tr?.querySelector(".learning-cell");
+      if (!cell) continue;
+      const thought = renderer.learningThought(row);
+      const probability = finite(thought?.probability);
+      cell.dataset.sort = probability === null ? "-999999999" : probability.toFixed(12);
+      cell.innerHTML = String(thought?.html || "");
+      updated += 1;
+    }
+    return updated;
+  }
+
   return {
     finite,
     extractFeatures,
     predict,
     loadCurrentModel,
     applyToAnalysis,
+    updateRenderedLearningCells,
     learningPlaceholder
   };
 });

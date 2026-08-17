@@ -38,6 +38,7 @@
   const GEMINI_USAGE_KEY = "tennisratio.gemini.usage.v1";
   const GEMINI_GROUNDED_DAILY_LIMIT = 500;
   const ANALYSIS_TOAST_DURATION_MS = 18000;
+  const LEARNING_LIVE_REFRESH_MS = 2 * 60 * 1000;
   const TELEGRAM_NOTIFY_PATH = "/telegram/notify";
   const FULL_ANALYSIS_AUTH_PATH = "/auth/full-analysis";
   const DEFAULT_TENNIS_PROMPT = "你是一般用途的 Gemini 助理，同時熟悉 TennisRatio 網球賽事分析。使用繁體中文，回答清楚、精確、可覆盤。可以回答一般問題；涉及近期消息時使用 Google Search 並列出來源。以系統提供的 Pinnacle 與 ratio_analysis.json 為主要依據，不捏造賠率、勝率、評級、D值或五項比較。區分『較可能獲勝』與『目前賠率是否值得下注』，不要承諾獲利。";
@@ -63,6 +64,8 @@
     toastTimer: null,
     completionNotificationPending: false,
     completionNotificationMode: null,
+    learningRefreshTimer: null,
+    learningRefreshRunning: false,
     lastRiskDiagnostic: null,
     riskCacheCycleId: null,
     riskCacheCycleAnchorAt: null,
@@ -3071,6 +3074,49 @@
     cursor.remove();
   }
 
+  async function refreshLearningDisplay({ force = false } = {}) {
+    if (state.learningRefreshRunning) return;
+    if (!state.analysis || !Array.isArray(state.analysis.matches)) return;
+    if (!force && document.hidden) return;
+    if (!force && document.querySelector(".run-button:disabled")) return;
+
+    state.learningRefreshRunning = true;
+    try {
+      const beforeVersion = String(state.analysis?.learning_model?.active_version || "");
+      const beforeSettled = Number(state.analysis?.learning_model?.settled_unique_matches || 0);
+      const updated = await learning.applyToAnalysis(state.analysis, WORKER_URL);
+      state.analysis = updated;
+      learning.updateRenderedLearningCells(updated);
+
+      const afterVersion = String(updated?.learning_model?.active_version || "");
+      const afterSettled = Number(updated?.learning_model?.settled_unique_matches || 0);
+      elements.body.dataset.learningVersion = afterVersion;
+      elements.body.dataset.learningSettled = String(afterSettled);
+      elements.body.dataset.learningCheckedAt = new Date().toISOString();
+
+      if (force || beforeVersion !== afterVersion || beforeSettled !== afterSettled) {
+        console.info(
+          `Learning自動同步完成：${beforeSettled}→${afterSettled}場，模型 ${beforeVersion || "—"}→${afterVersion || "—"}`
+        );
+      }
+    } catch (error) {
+      console.info("Learning自動同步暫時失敗，下輪會重試。", error);
+    } finally {
+      state.learningRefreshRunning = false;
+    }
+  }
+
+  function startLearningRefreshClock() {
+    if (state.learningRefreshTimer !== null) return;
+    state.learningRefreshTimer = window.setInterval(
+      () => refreshLearningDisplay().catch(() => null),
+      LEARNING_LIVE_REFRESH_MS
+    );
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshLearningDisplay().catch(() => null);
+    });
+  }
+
   async function loadData() {
     setRunning(true);
     elements.statusText.textContent =
@@ -3083,13 +3129,19 @@
         fetchJson("ratio_config.json"),
         fetchLatestExternalRisk()
       ]);
-      state.analysis = analysis;
+      elements.statusText.textContent =
+        "R2資料已載入｜正在套用最新 Learning 模型，不需重新分析……";
+      const analysisWithLearning = await learning.applyToAnalysis(analysis, WORKER_URL);
+      state.analysis = analysisWithLearning;
       state.today = today;
       state.sourceBundle = sourceBundle;
       state.config = config;
       state.externalRisk = externalRisk;
       startRiskCountdownClock();
-      renderAnalysis(analysis, today);
+      renderAnalysis(analysisWithLearning, today);
+      elements.body.dataset.learningVersion = String(analysisWithLearning?.learning_model?.active_version || "");
+      elements.body.dataset.learningSettled = String(analysisWithLearning?.learning_model?.settled_unique_matches || 0);
+      elements.body.dataset.learningCheckedAt = new Date().toISOString();
       // 開啟網頁只呈現 R2 既有結果。
       // 不自動搜尋外部消息；由三個按鈕明確啟動 Gemini Google Search 風險掃描。
       if (sourceBundle?.matches) {
@@ -3113,7 +3165,7 @@
 
         elements.statusText.textContent =
           `Phase 4系統已就緒｜ratio_analysis ` +
-          `${analysis.matches?.length || 0}場｜` +
+          `${analysisWithLearning.matches?.length || 0}場｜` +
           `source_bundle ${
             sourceBundle.matches.length
           }場｜場地 ${
@@ -3605,5 +3657,6 @@
     setRunning(false);
   });
 
+  startLearningRefreshClock();
   loadData();
 })();
