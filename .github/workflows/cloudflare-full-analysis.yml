@@ -1,0 +1,41 @@
+name: Cloudflare Full Analysis
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: tennisratio-full-analysis
+  cancel-in-progress: false
+
+jobs:
+  full-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Run TennisRatio full analysis
+        env:
+          FULL_ANALYSIS_PASSWORD: ${{ secrets.FULL_ANALYSIS_PASSWORD }}
+          TENNIS_PAGE_URL: https://youjianchonglangshou-design.github.io/TennisRatioRatingSystem/
+        run: node automation/run-full-analysis.mjs
+
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tennisratio-full-analysis-failure
+          path: automation/full-analysis-failure.png
+          if-no-files-found: ignore
