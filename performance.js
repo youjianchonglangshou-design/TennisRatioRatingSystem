@@ -171,51 +171,10 @@
     };
   }
 
-  function aiEligibleRows() {
-    return state.matches.filter(row =>
-      row?.training_eligible === true &&
-      typeof row?.hot_won === "boolean" &&
-      aiSnapshot(row)
-    );
-  }
-
-  function aiProbabilityStats(minRatio) {
-    const rows = aiEligibleRows().filter(row => aiSnapshot(row).probability >= minRatio);
-    const wins = rows.filter(row => row.hot_won === true).length;
-    const losses = rows.length - wins;
-    return {
-      rows,
-      wins,
-      losses,
-      total: rows.length,
-      winRate: rows.length ? (wins / rows.length) * 100 : null,
-    };
-  }
-
-  function aiDecisionStats(decision) {
-    const rows = aiEligibleRows().filter(row => aiSnapshot(row).decision === decision);
-    let hits = 0;
-    let misses = 0;
-    for (const row of rows) {
-      if (decision === "保留") continue;
-      const hit = decision === "支持" ? row.hot_won === true : row.hot_won === false;
-      if (hit) hits += 1;
-      else misses += 1;
-    }
-    return {
-      rows,
-      hits,
-      misses,
-      total: rows.length,
-      accuracy: hits + misses ? (hits / (hits + misses)) * 100 : null,
-      hotWinRate: rows.length ? (rows.filter(row => row.hot_won === true).length / rows.length) * 100 : null,
-    };
-  }
-
   function aiDecisionResult(row) {
     const snapshot = aiSnapshot(row);
     if (!snapshot || row?.training_eligible !== true || typeof row?.hot_won !== "boolean") {
-      return { label: "尚無結果", className: "pending" };
+      return { label: "—", className: "pending" };
     }
     if (snapshot.decision === "保留") {
       return {
@@ -228,105 +187,6 @@
       label: hit ? "AI命中" : "AI失誤",
       className: hit ? "hit" : "miss",
     };
-  }
-
-  function renderAiValidation() {
-    const eligible = aiEligibleRows();
-    const support = aiDecisionStats("支持");
-    const warning = aiDecisionStats("警示");
-    const at80 = aiProbabilityStats(0.80);
-
-    $("ai-snapshot-count").textContent = `${eligible.length} 場`;
-    $("ai-snapshot-sub").textContent = eligible.length
-      ? "只計入開賽前已保存且有正式賽果"
-      : "新 AI 快照會從部署後開始累積";
-
-    $("ai-support-record").textContent = support.rows.length
-      ? `${support.hits}中 ${support.misses}錯`
-      : "尚無樣本";
-    $("ai-support-sub").textContent = support.accuracy !== null
-      ? `支持命中率 ${support.accuracy.toFixed(2)}%｜樣本 ${support.rows.length}`
-      : "等待 AI 支持場次結算";
-
-    $("ai-warning-record").textContent = warning.rows.length
-      ? `${warning.hits}中 ${warning.misses}錯`
-      : "尚無樣本";
-    $("ai-warning-sub").textContent = warning.accuracy !== null
-      ? `警示命中率 ${warning.accuracy.toFixed(2)}%｜樣本 ${warning.rows.length}`
-      : "等待 AI 警示場次結算";
-
-    $("ai-80-record").textContent = at80.total
-      ? `${at80.wins}勝 ${at80.losses}敗`
-      : "尚無樣本";
-    $("ai-80-sub").textContent = at80.winRate !== null
-      ? `熱門方實際勝率 ${at80.winRate.toFixed(2)}%｜樣本 ${at80.total}`
-      : "等待 AI ≥80% 場次結算";
-
-    const thresholds = [0.60, 0.70, 0.80];
-    $("ai-threshold-cards").innerHTML = thresholds.map(threshold => {
-      const stats = aiProbabilityStats(threshold);
-      const focus = threshold === 0.80 ? " focus" : "";
-      return `<article class="ai-threshold-card${focus}">
-        <span>AI 勝率 ≥ ${(threshold * 100).toFixed(0)}%</span>
-        <strong>${stats.total ? `${stats.wins}勝 ${stats.losses}敗` : "尚無樣本"}</strong>
-        <small>${stats.total ? `實際勝率 ${stats.winRate.toFixed(2)}%｜樣本 ${stats.total} 場` : "正式結算 0 場"}</small>
-      </article>`;
-    }).join("");
-
-    const body = $("ai-snapshot-body");
-    const rows = [...eligible].sort((a, b) => {
-      const at = Date.parse(String(a.date_time_taipei || a.settled_at || "")) || 0;
-      const bt = Date.parse(String(b.date_time_taipei || b.settled_at || "")) || 0;
-      return bt - at;
-    });
-
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="8" class="loading-cell">目前還沒有可驗證的 AI 賽前快照；部署後的新比賽會開始累積。</td></tr>';
-      $("ai-snapshot-footer").textContent = "AI快照 0 場";
-      return;
-    }
-
-    body.innerHTML = rows.map(row => {
-      const snapshot = aiSnapshot(row);
-      const verdict = aiDecisionResult(row);
-      const decisionClass = snapshot.decision === "支持"
-        ? "support"
-        : snapshot.decision === "警示"
-          ? "warning"
-          : "hold";
-      const leagueInfo = compactLeague(row);
-      const homeRank = num(row.home_rank);
-      const awayRank = num(row.away_rank);
-      const homeBetter = homeRank !== null && awayRank !== null && homeRank < awayRank;
-      const awayBetter = homeRank !== null && awayRank !== null && awayRank < homeRank;
-      const homeIsHot = hotSideIsHome(row);
-      const awayIsHot = String(row?.hot_side || "") === "客場";
-      const score = num(row.home_score) !== null && num(row.away_score) !== null
-        ? `${Number(row.home_score)} : ${Number(row.away_score)}`
-        : "—";
-      const model = String(snapshot.model_version || "—");
-      const dataset = num(snapshot.dataset_matches);
-      const modelText = dataset !== null ? `${model}｜${dataset}場` : model;
-      return `<tr>
-        <td>${escapeHtml(row.date_time_taipei || row.date || "—")}</td>
-        <td>
-          <div class="match-info-cell">
-            <span class="meta-badge level">${escapeHtml(leagueInfo.level || "—")}</span>
-            ${leagueInfo.round ? `<span class="meta-badge round">${escapeHtml(leagueInfo.round)}</span>` : ""}
-          </div>
-        </td>
-        <td>${playerCell(row.home, row.home_rank, homeIsHot, homeBetter)}</td>
-        <td>${playerCell(row.away, row.away_rank, awayIsHot, awayBetter)}</td>
-        <td><span class="ai-prediction-pill ${decisionClass}">試判${escapeHtml(snapshot.decision)} ${ratioPct(snapshot.probability)}</span></td>
-        <td class="ai-model-cell">${escapeHtml(modelText)}</td>
-        <td class="score">${score}</td>
-        <td><span class="ai-verdict ${verdict.className}">${escapeHtml(verdict.label)}</span></td>
-      </tr>`;
-    }).join("");
-
-    const supportText = support.accuracy !== null ? `支持 ${support.accuracy.toFixed(1)}%` : "支持 —";
-    const warningText = warning.accuracy !== null ? `警示 ${warning.accuracy.toFixed(1)}%` : "警示 —";
-    $("ai-snapshot-footer").textContent = `可驗證 ${rows.length} 場｜${supportText}｜${warningText}｜AI≥80% ${at80.winRate !== null ? `${at80.winRate.toFixed(1)}%` : "—"}`;
   }
 
   function renderDaily(payload) {
@@ -430,6 +290,8 @@
     const result = $("result-filter").value;
     const probabilityMinRaw = $("probability-filter").value;
     const probabilityMin = probabilityMinRaw === "全部" ? null : Number(probabilityMinRaw);
+    const aiProbabilityMinRaw = $("ai-probability-filter").value;
+    const aiProbabilityMin = aiProbabilityMinRaw === "全部" ? null : Number(aiProbabilityMinRaw);
     const q = $("search-input").value.trim().toLowerCase();
 
     return state.matches.filter(row => {
@@ -439,11 +301,16 @@
         const probability = ratioNumber(row.rating_probability);
         if (probability === null || probability < probabilityMin) return false;
       }
+      if (aiProbabilityMin !== null) {
+        const snapshot = aiSnapshot(row);
+        if (!snapshot || snapshot.probability < aiProbabilityMin) return false;
+      }
       if (q) {
         const leagueInfo = compactLeague(row).text;
         const hay = [
           row.home, row.away, row.hot_player, row.league, leagueInfo,
           row.date_time_taipei, normalizedRating(row), dSignalLabel(row),
+          aiSnapshot(row)?.decision, aiSnapshot(row)?.model_version,
         ].join(" ").toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -458,6 +325,7 @@
     if (key === "away") return String(row.away || "").toLowerCase();
     if (key === "hot_odds") return num(row.hot_odds) ?? -Infinity;
     if (key === "rating_probability") return ratioNumber(row.rating_probability) ?? -Infinity;
+    if (key === "ai_probability") return aiSnapshot(row)?.probability ?? -Infinity;
     if (key === "rank_gap_abs") return num(row.rank_gap_abs) ?? -Infinity;
     if (key === "rating_ev") return ratioNumber(row.rating_ev) ?? -Infinity;
     if (key === "rating") {
@@ -501,7 +369,7 @@
     updateSortHeaders();
 
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="9" class="loading-cell">目前篩選條件沒有結算場次。</td></tr>';
+      body.innerHTML = '<tr><td colspan="10" class="loading-cell">目前篩選條件沒有結算場次。</td></tr>';
       $("detail-footer").textContent = "顯示 0 場";
       return;
     }
@@ -522,6 +390,25 @@
       const awayRank = num(row.away_rank);
       const homeBetter = homeRank !== null && awayRank !== null && homeRank < awayRank;
       const awayBetter = homeRank !== null && awayRank !== null && awayRank < homeRank;
+      const snapshot = aiSnapshot(row);
+      const aiVerdict = aiDecisionResult(row);
+      const aiDecisionClass = snapshot?.decision === "支持"
+        ? "support"
+        : snapshot?.decision === "警示"
+          ? "warning"
+          : "hold";
+      const aiModel = snapshot?.model_version ? String(snapshot.model_version) : "";
+      const aiDataset = num(snapshot?.dataset_matches);
+      const aiModelText = aiModel
+        ? `${aiModel}${aiDataset !== null ? `｜${aiDataset}場` : ""}`
+        : "";
+      const aiCell = snapshot
+        ? `<div class="ai-snapshot-inline">
+            <span class="ai-prediction-pill ${aiDecisionClass}">試判${escapeHtml(snapshot.decision)} ${ratioPct(snapshot.probability)}</span>
+            <span class="ai-snapshot-meta">${escapeHtml(aiModelText)}</span>
+            <span class="ai-verdict ${aiVerdict.className}">${escapeHtml(aiVerdict.label)}</span>
+          </div>`
+        : '<span class="ai-no-snapshot">—</span>';
       return `<tr>
         <td>${escapeHtml(row.date_time_taipei || row.date || "—")}</td>
         <td>
@@ -533,6 +420,7 @@
         <td>${playerCell(row.home, row.home_rank, homeIsHot, homeBetter)}</td>
         <td>${playerCell(row.away, row.away_rank, awayIsHot, awayBetter)}</td>
         <td class="metric${probabilityClass}">${ratioPct(row.rating_probability)}</td>
+        <td class="ai-snapshot-detail-cell">${aiCell}</td>
         <td class="metric">${ratioPct(row.rating_ev, 2, true)}</td>
         <td>
           <div class="rating-d-wrap">
@@ -548,7 +436,20 @@
     const probabilityLabel = $("probability-filter").value === "全部"
       ? "全部評級勝率"
       : `評級勝率 ≥ ${(Number($("probability-filter").value) * 100).toFixed(0)}%`;
-    $("detail-footer").textContent = `${probabilityLabel}｜顯示 ${rows.length}／${state.matches.length} 場｜排序：${state.sortDir === "asc" ? "小→大" : "大→小"}`;
+    const aiProbabilityLabel = $("ai-probability-filter").value === "全部"
+      ? "全部AI快照"
+      : `AI 賽前 ≥ ${(Number($("ai-probability-filter").value) * 100).toFixed(0)}%`;
+    const completedRows = rows.filter(row =>
+      row?.training_eligible === true && typeof row?.hot_won === "boolean"
+    );
+    const hotWins = completedRows.filter(row => row.hot_won === true).length;
+    const hotLosses = completedRows.length - hotWins;
+    const observedRate = completedRows.length
+      ? `${((hotWins / completedRows.length) * 100).toFixed(2)}%`
+      : "—";
+    $("detail-footer").textContent =
+      `${probabilityLabel}｜${aiProbabilityLabel}｜正式 ${completedRows.length} 場：${hotWins}勝${hotLosses}敗／熱門方勝率 ${observedRate}` +
+      `｜顯示 ${rows.length}／${state.matches.length} 場｜排序：${state.sortDir === "asc" ? "小→大" : "大→小"}`;
   }
 
   async function loadPerformance(days = state.days) {
@@ -567,7 +468,6 @@
       state.matches = Array.isArray(payload.matches) ? payload.matches : [];
       updateSummary(payload);
       renderThresholds();
-      renderAiValidation();
       renderDaily(payload);
       renderDetails();
       const range = payload.date_from && payload.date_to ? `${payload.date_from} ～ ${payload.date_to}` : "尚無日期";
@@ -575,10 +475,8 @@
     } catch (error) {
       $("status-text").textContent = `戰績讀取失敗：${error?.message || error}`;
       $("daily-body").innerHTML = `<tr><td colspan="7" class="loading-cell">${escapeHtml(error?.message || String(error))}</td></tr>`;
-      $("detail-body").innerHTML = '<tr><td colspan="9" class="loading-cell">請確認 Cloudflare Worker 已部署含排名／D欄位的新版 /performance/results。</td></tr>';
+      $("detail-body").innerHTML = '<tr><td colspan="10" class="loading-cell">請確認 Cloudflare Worker 已部署含排名／D／AI賽前快照欄位的新版 /performance/results。</td></tr>';
       $("probability-threshold-cards").innerHTML = '<div class="loading-cell">門檻統計讀取失敗。</div>';
-      $("ai-threshold-cards").innerHTML = '<div class="loading-cell">AI快照統計讀取失敗。</div>';
-      $("ai-snapshot-body").innerHTML = '<tr><td colspan="8" class="loading-cell">AI快照讀取失敗。</td></tr>';
     } finally {
       $("refresh-button").disabled = false;
     }
@@ -591,7 +489,7 @@
     }));
 
     $("refresh-button").addEventListener("click", () => loadPerformance(state.days));
-    ["grade-filter", "result-filter", "probability-filter", "search-input"].forEach(id => {
+    ["grade-filter", "result-filter", "probability-filter", "ai-probability-filter", "search-input"].forEach(id => {
       $(id).addEventListener(id === "search-input" ? "input" : "change", renderDetails);
     });
 
@@ -603,7 +501,7 @@
           state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
         } else {
           state.sortKey = key;
-          state.sortDir = ["rating_probability", "rating_ev", "rating", "date_time_taipei", "score", "result", "hot_odds", "rank_gap_abs"].includes(key)
+          state.sortDir = ["rating_probability", "ai_probability", "rating_ev", "rating", "date_time_taipei", "score", "result", "hot_odds", "rank_gap_abs"].includes(key)
             ? "desc"
             : "asc";
         }
