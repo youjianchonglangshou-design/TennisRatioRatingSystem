@@ -1,15 +1,12 @@
 import { chromium } from "playwright";
-import fs from "node:fs";
 
 const password = String(process.env.FULL_ANALYSIS_PASSWORD || "").trim();
 const pageUrl = String(process.env.TENNIS_PAGE_URL || "").trim();
+const workerBaseUrl = String(process.env.TENNIS_WORKER_URL || "").trim().replace(/\/+$/, "");
 
-if (!password) {
-  throw new Error("GitHub Secret FULL_ANALYSIS_PASSWORD 尚未設定。");
-}
-if (!pageUrl) {
-  throw new Error("TENNIS_PAGE_URL 尚未設定。");
-}
+if (!password) throw new Error("GitHub Secret FULL_ANALYSIS_PASSWORD 尚未設定。");
+if (!pageUrl) throw new Error("TENNIS_PAGE_URL 尚未設定。");
+if (!workerBaseUrl) throw new Error("TENNIS_WORKER_URL 尚未設定。");
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
@@ -37,7 +34,45 @@ async function text(selector) {
   return String(await page.locator(selector).textContent().catch(() => "") || "").trim();
 }
 
+async function proxyArcadia(route) {
+  const original = new URL(route.request().url());
+  let endpoint = null;
+
+  if (original.pathname.endsWith("/sports/33/matchups")) {
+    endpoint = `${workerBaseUrl}/source/arcadia/matchups`;
+  } else if (original.pathname.endsWith("/sports/33/markets/straight")) {
+    endpoint = `${workerBaseUrl}/source/arcadia/markets`;
+  }
+
+  if (!endpoint) {
+    await route.continue();
+    return;
+  }
+
+  console.log(`[Arcadia proxy] ${original.pathname} -> ${endpoint}`);
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { Accept: "application/json,text/plain,*/*" },
+    cache: "no-store"
+  });
+  const body = Buffer.from(await response.arrayBuffer());
+  const contentType = response.headers.get("content-type") || "application/json; charset=utf-8";
+
+  await route.fulfill({
+    status: response.status,
+    headers: {
+      "content-type": contentType,
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*"
+    },
+    body
+  });
+}
+
 try {
+  // app.js 不改：只有 GitHub 自動執行時，把 Arcadia 兩支 GET 改走既有 Cloudflare Worker。
+  await page.route("https://guest.api.arcadia.pinnacle.com/**", proxyArcadia);
+
   console.log(`Open: ${pageUrl}`);
   await page.goto(pageUrl, {
     waitUntil: "domcontentloaded",
