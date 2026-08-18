@@ -30,6 +30,7 @@ jobs:
         env:
           FULL_ANALYSIS_PASSWORD: ${{ secrets.FULL_ANALYSIS_PASSWORD }}
           TENNIS_PAGE_URL: https://youjianchonglangshou-design.github.io/TennisRatioRatingSystem/
+          TENNIS_WORKER_URL: https://tennis-json-store.youjianchonglangshou.workers.dev
         run: node automation/run-full-analysis.mjs
 
       - name: Upload failure screenshot
