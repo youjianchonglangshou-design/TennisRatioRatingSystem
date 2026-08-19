@@ -2,6 +2,12 @@ name: Cloudflare Full Analysis
 
 on:
   workflow_dispatch:
+    inputs:
+      batch_id:
+        description: "Cloudflare 自動排程 batch_id；手動執行可留空"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: tennisratio-full-analysis
@@ -11,6 +17,11 @@ jobs:
   full-analysis:
     runs-on: ubuntu-24.04
     timeout-minutes: 70
+    env:
+      FULL_ANALYSIS_PASSWORD: ${{ secrets.FULL_ANALYSIS_PASSWORD }}
+      TENNIS_PAGE_URL: https://youjianchonglangshou-design.github.io/TennisRatioRatingSystem/
+      TENNIS_WORKER_URL: https://tennis-json-store.youjianchonglangshou.workers.dev
+      AUTOMATION_BATCH_ID: ${{ inputs.batch_id || github.run_id }}
 
     steps:
       - name: Checkout
@@ -25,11 +36,21 @@ jobs:
         run: npm install --no-save playwright@1.55.0
 
       - name: Run TennisRatio full analysis
-        env:
-          FULL_ANALYSIS_PASSWORD: ${{ secrets.FULL_ANALYSIS_PASSWORD }}
-          TENNIS_PAGE_URL: https://youjianchonglangshou-design.github.io/TennisRatioRatingSystem/
-          TENNIS_WORKER_URL: https://tennis-json-store.youjianchonglangshou.workers.dev
+        id: analysis
         run: node automation/run-full-analysis.mjs
+
+      - name: Ensure failed automation status is closed
+        if: ${{ always() && steps.analysis.outcome != 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          BODY=$(printf '{"batch_id":"%s","status":"FAILED","phase":"FAILED","message":"GitHub Actions 未完成完整分析","source":"GITHUB_ACTIONS"}' "$AUTOMATION_BATCH_ID")
+          curl --fail --silent --show-error --retry 2 --retry-delay 1 --retry-all-errors \
+            -X POST \
+            -H "Authorization: Bearer $FULL_ANALYSIS_PASSWORD" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d "$BODY" \
+            "$TENNIS_WORKER_URL/api/internal/automation/status" || true
 
       - name: Upload failure screenshot
         if: failure()
