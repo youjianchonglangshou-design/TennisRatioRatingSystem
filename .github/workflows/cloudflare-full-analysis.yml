@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   full-analysis:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 70
 
     steps:
@@ -21,10 +21,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Playwright
-        run: |
-          npm install --no-save playwright@1.55.0
-          npx playwright install --with-deps chromium
+      - name: Install Playwright library
+        run: npm install --no-save playwright@1.55.0
 
       - name: Run TennisRatio full analysis
         env:
