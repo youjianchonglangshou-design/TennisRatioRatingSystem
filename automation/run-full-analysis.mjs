@@ -8,7 +8,7 @@ if (!password) throw new Error("GitHub Secret FULL_ANALYSIS_PASSWORD 尚未設�
 if (!pageUrl) throw new Error("TENNIS_PAGE_URL 尚未設定。");
 if (!workerBaseUrl) throw new Error("TENNIS_WORKER_URL 尚未設定。");
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, channel: "chrome" });
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
   locale: "zh-TW",
