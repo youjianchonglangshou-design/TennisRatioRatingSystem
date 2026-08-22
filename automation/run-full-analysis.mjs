@@ -92,9 +92,18 @@ async function proxyArcadia(route) {
   }
 
   console.log(`[Arcadia proxy] ${original.pathname} -> ${endpoint}`);
+  const originalHeaders = await route.request().allHeaders();
+  const arcadiaApiKey = String(originalHeaders["x-api-key"] || "").trim();
+  if (!arcadiaApiKey) {
+    throw new Error("Arcadia x-api-key 未從原始網頁請求取得。");
+  }
+
   const response = await fetch(endpoint, {
     method: "GET",
-    headers: { Accept: "application/json,text/plain,*/*" },
+    headers: {
+      Accept: "application/json,text/plain,*/*",
+      "x-api-key": arcadiaApiKey
+    },
     cache: "no-store"
   });
   const body = Buffer.from(await response.arrayBuffer());
